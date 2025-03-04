@@ -1,0 +1,7 @@
+ngrok http 5000 --domain optimum-muskrat-advanced.ngrok-free.app
+
+
+
+todo:
+1. Link the admin to the property
+4. Reminders to the whatsapp admin if its been more than 2 days with no updates 

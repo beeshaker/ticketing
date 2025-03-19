@@ -9,6 +9,11 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from conn1 import get_db_connection1
 from sqlalchemy.sql import text
+import threading
+import datetime
+
+# Dictionary to track category selection timeouts
+
 
 # Load environment variables
 load_dotenv()
@@ -30,6 +35,7 @@ logging.basicConfig(level=logging.INFO)
 # In-memory storage to track processed messages
 processed_message_ids = set()
 last_messages = {}  # { sender_id: (message_text, timestamp) }
+user_timers = {}
 
 
 def opt_in_user(whatsapp_number):
@@ -90,6 +96,36 @@ def query_database(query, params=(), commit=False):
     except mysql.connector.Error as err:
         logging.error(f"Database error: {err}")
         return None
+    
+    
+def send_category_prompt(to):
+    """Asks the user to select a category for the ticket."""
+    message = "Please select a category:\n1️⃣ Accounts\n2️⃣ Maintenance\n3️⃣ Security\nReply with the number."
+    send_whatsapp_message(to, message)
+
+    # Set timeout to reset user status if they don't respond within 5 minutes
+    user_timers[to] = datetime.datetime.now()
+    threading.Thread(target=reset_category_selection, args=(to,)).start()
+    
+def reset_category_selection(to):
+    """Resets the category selection if the user takes more than 5 minutes to respond."""
+    time.sleep(300)  # Wait for 5 minutes
+    last_attempt_time = user_timers.get(to)
+    
+    if last_attempt_time:
+        elapsed_time = (datetime.datetime.now() - last_attempt_time).total_seconds()
+        if elapsed_time >= 300:  # If still waiting after 5 minutes
+            logging.info(f"⏳ Resetting category selection for {to} due to timeout.")
+            query_database("UPDATE users SET last_action = NULL WHERE whatsapp_number = %s", (to,), commit=True)
+            send_whatsapp_message(to, "⏳ Your category selection request has expired. Please start again by selecting '📝 Create Ticket'.")
+            del user_timers[to]  # Remove from trackin
+
+
+
+def get_category_name(category_number):
+    """Returns the category name based on the user's selection."""
+    categories = {"1": "Accounts", "2": "Maintenance", "3": "Security"}
+    return categories.get(category_number, None)
 
 # Prevent duplicate message processing
 def is_message_processed(message_id):
@@ -230,7 +266,7 @@ def webhook():
 
 
 def process_webhook(data):
-    """Handles message processing separately from the main webhook response."""
+    """Handles incoming WhatsApp messages."""
     if "entry" in data:
         for entry in data["entry"]:
             for change in entry.get("changes", []):
@@ -243,17 +279,11 @@ def process_webhook(data):
                         message_id = message.get("id")
                         sender_id = message["from"]
                         message_text = message.get("text", {}).get("body", "").strip()
-                        
+
                         if not is_registered_user(sender_id):
                             logging.info(f"Blocked unregistered user: {sender_id}")
                             send_whatsapp_message(sender_id, "You are not registered. Please register first.")
                             continue
-                        
-                        success, opt_in_message = opt_in_user(sender_id)
-                        if success:
-                            logging.info(f"User {sender_id} successfully opted in.")
-                        else:
-                            logging.warning(f"Failed to opt-in user {sender_id}: {opt_in_message}")
 
                         # ✅ Prevent duplicate messages
                         if is_message_processed(message_id) or not should_process_message(sender_id, message_text):
@@ -268,41 +298,52 @@ def process_webhook(data):
                             button_id = message["interactive"]["button_reply"]["id"]
 
                             if button_id == "create_ticket":
-                                user = query_database("SELECT id FROM users WHERE whatsapp_number = %s", (sender_id,))
-                                if not user:
-                                    send_whatsapp_message(sender_id, "You are not registered. Please contact support.")
-                                    continue  
-
-                                query_database("UPDATE users SET last_action = 'awaiting_issue_description' WHERE whatsapp_number = %s", (sender_id,), commit=True)
-                                send_whatsapp_message(sender_id, "Please describe your issue, and we will create a ticket for you.")
+                                # Step 1: Ask user to choose a category
+                                query_database("UPDATE users SET last_action = 'awaiting_category' WHERE whatsapp_number = %s", (sender_id,), commit=True)
+                                send_category_prompt(sender_id)
                                 continue
 
                             elif button_id == "check_ticket":
                                 send_whatsapp_tickets(sender_id)
                                 continue
 
-                        # ✅ Handle text-based ticket creation
+                        # ✅ Handle category selection
                         user_status = query_database("SELECT last_action FROM users WHERE whatsapp_number = %s", (sender_id,))
-                        if user_status and user_status[0]["last_action"] == "awaiting_issue_description":
-                            user_id_result = query_database("SELECT id FROM users WHERE whatsapp_number = %s", (sender_id,))
-                            if user_id_result:
-                                user_id = user_id_result[0]["id"]
-                                query_database("INSERT INTO tickets (user_id, issue_description, status, created_at) VALUES (%s, %s, 'Open', NOW())", (user_id, message_text), commit=True)
-                                query_database("UPDATE users SET last_action = NULL WHERE whatsapp_number = %s", (sender_id,), commit=True)
-                                send_whatsapp_message(sender_id, "Your ticket has been created. Our team will get back to you soon!")
-                            else:
-                                send_whatsapp_message(sender_id, "Error creating ticket. Please try again.")
-                            continue  
-                        
-                        elif user_status and user_status[0]["last_action"] == "awaiting_issue_number":
-                            ticket_id = message_text.strip()
-                            ticket_result = query_database("SELECT status FROM tickets WHERE id = %s AND user_id = (SELECT id FROM users WHERE whatsapp_number = %s)", (ticket_id, sender_id))
-                            query_database("UPDATE users SET last_action = NULL WHERE whatsapp_number = %s", (sender_id,), commit=True)
+                        property = query_database("SELECT property FROM users WHERE whatsapp_number = %s", (sender_id,))[0]["property"]
+                        assigned_admin = query_database("SELECT id FROM admin_users WHERE property = %s", (property,))[0]["id"]
+                        if user_status and user_status[0]["last_action"] == "awaiting_category":
+                            category_name = get_category_name(message_text)
 
-                            if ticket_result:
-                                send_whatsapp_message(sender_id, f"Your ticket status: {ticket_result[0]['status']}")
+                            if category_name:
+                                # Store selected category and ask for issue description
+                                query_database(
+                                    "UPDATE users SET last_action = 'awaiting_issue_description', temp_category = %s WHERE whatsapp_number = %s",
+                                    (category_name, sender_id),
+                                    commit=True,
+                                )
+                                send_whatsapp_message(sender_id, "Please describe your issue, and we will create a ticket for you.")
+                                del user_timers[sender_id]  # Remove timeout tracking
                             else:
-                                send_whatsapp_message(sender_id, "Ticket not found. Please check your Ticket ID.")
+                                send_whatsapp_message(sender_id, "⚠️ Invalid selection. Please reply with 1️⃣, 2️⃣, or 3️⃣.")
+                                send_category_prompt(sender_id)  # Reprompt if invalid input
+                            continue
+
+                        # ✅ Handle text-based ticket creation with category
+                        if user_status and user_status[0]["last_action"] == "awaiting_issue_description":
+                            user_info = query_database("SELECT id, temp_category FROM users WHERE whatsapp_number = %s", (sender_id,))
+                            if user_info:
+                                user_id = user_info[0]["id"]
+                                category = user_info[0]["temp_category"]
+
+                                query_database(
+                                    "INSERT INTO tickets (user_id, issue_description, status, created_at, category, property, assigned_admin) VALUES (%s, %s, 'Open', NOW(), %s, %s, %s)",
+                                    (user_id, message_text, category, property, assigned_admin),
+                                    commit=True,
+                                )
+                                query_database("UPDATE users SET last_action = NULL, temp_category = NULL WHERE whatsapp_number = %s", (sender_id,), commit=True)
+                                send_whatsapp_message(sender_id, f"✅ Your ticket has been created under the *{category}* category. Our team will get back to you soon!")
+                            else:
+                                send_whatsapp_message(sender_id, "❌ Error creating ticket. Please try again.")
                             continue  
 
                         # ✅ Handle common messages

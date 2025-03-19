@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy.sql import text
-from conn import get_db_connection
+from conn import Conn
 from whatsapp import send_whatsapp_message, opt_in_user
 
+
+db= Conn()
 def register_user(name, whatsapp_number, property_name, unit_number):
     """Registers user and opts them into WhatsApp communication."""
-    engine = get_db_connection()
+    engine = db.engine()
     with engine.connect() as conn:
         try:
             check_query = text("SELECT id FROM users WHERE whatsapp_number = :whatsapp_number")
@@ -39,7 +41,7 @@ def register_user(name, whatsapp_number, property_name, unit_number):
 
 
 def fetch_users():
-    engine = get_db_connection()
+    engine = db.engine()
     with engine.connect() as conn:
         query = text("SELECT id, name, whatsapp_number, property, unit_number FROM users")
         result = conn.execute(query)
@@ -84,7 +86,7 @@ elif menu_option == "Register User":
     st.title("📲 WhatsApp User Registration")
     
     def register_user(name, whatsapp_number, property_name, unit_number):
-        engine = get_db_connection()
+        engine = engine()
         with engine.connect() as conn:
             try:
                 check_query = text("SELECT id FROM users WHERE whatsapp_number = :whatsapp_number")
@@ -135,7 +137,7 @@ elif menu_option == "Register User":
     st.subheader("Registered Users")
     
     def fetch_users():
-        engine = get_db_connection()
+        engine = engine()
         with engine.connect() as conn:
             query = text("SELECT id, name, whatsapp_number, property, unit_number FROM users")
             result = conn.execute(query)

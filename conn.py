@@ -7,82 +7,180 @@ from sqlalchemy.sql import text
 from whatsapp import send_whatsapp_message  # ✅ Importing WhatsApp messaging function
 
 load_dotenv()
-if "admin_property" not in st.session_state:
-    st.session_state.admin_property = "All"  # Default value
-# Database Connection using SQLAlchemy
-DB_URI = f"mysql+mysqlconnector://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
-def get_db_connection():
-    return create_engine(DB_URI)
 
-# Fetch all tickets using SQLAlchemy
-def fetch_tickets(property=None):
-    engine = get_db_connection()
+class Conn:
+    """Database helper class to manage all queries and connections."""
     
-    query = """
-    SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, t.property 
-    FROM tickets t 
-    JOIN users u ON t.user_id = u.id
-    """
-    
-    params = {}
-    
-    # Only filter if a specific property is provided
-    if property and property != "All":
-        query += " WHERE t.property = %(property)s"
-        params["property"] = property
+    def __init__(self):
+        """Initialize database connection."""
+        DB_URI = f"mysql+mysqlconnector://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
+        self.engine = create_engine(DB_URI)
 
-    df = pd.read_sql(query, engine, params=params)
-    return df
+    # -------------------- FETCH TICKETS -------------------- #
+    def fetch_tickets(self, property=None):
+        """Fetches all tickets, ensuring previous admins can still view reassigned tickets."""
+        query = """
+        SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
+               t.property, t.category, a.name AS assigned_admin 
+        FROM tickets t 
+        JOIN users u ON t.user_id = u.id
+        LEFT JOIN admin_users a ON t.assigned_admin = a.id
+        WHERE t.status != 'Resolved';
+        """
 
-# Check admin property and fetch tickets accordingly
-if st.session_state.admin_property != "All":
-    tickets_df = fetch_tickets(st.session_state.admin_property)  # Fetch only for specific property
-else:
-    tickets_df = fetch_tickets()  # Fetch all tickets (no filter)
+        params = {}
 
-# Update ticket status
-def update_ticket_status(ticket_id, new_status):
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        conn.execute(
-            text("UPDATE tickets SET status = :new_status WHERE id = :ticket_id"),
-            {"new_status": new_status, "ticket_id": ticket_id}
+        if property and property != "All":
+            query += " AND t.property = :property"
+            params["property"] = property
+
+        df = pd.read_sql(query, self.engine, params=params)
+        return df
+
+    # -------------------- FETCH OPEN TICKETS -------------------- #
+    def fetch_open_tickets(self, admin_id=None):
+        """Fetch all open tickets, including category and assigned admin."""
+        query = """
+        SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
+               t.property, t.category, a.name AS assigned_admin 
+        FROM tickets t 
+        JOIN users u ON t.user_id = u.id
+        LEFT JOIN admin_users a ON t.assigned_admin = a.id
+        WHERE (
+            t.assigned_admin = %s 
+            OR t.id IN (SELECT ticket_id FROM admin_change_log WHERE old_admin = %s)
         )
-        conn.commit()
+        AND t.status != 'Resolved';
+        """
 
-    # Notify the user about the status update
-    with engine.connect() as conn:
-        result = conn.execute(
-            text("SELECT u.whatsapp_number FROM users u JOIN tickets t ON u.id = t.user_id WHERE t.id = :ticket_id"),
-            {"ticket_id": ticket_id}
-        ).fetchone()
-        
-    if result:
-        user_whatsapp = result[0]
-        message = f"Your ticket #{ticket_id} has been updated to: {new_status}"
-        send_whatsapp_message(user_whatsapp, message)  # ✅ Send WhatsApp notification
+        df = pd.read_sql(query, self.engine, params=(admin_id, admin_id))
+        return df
 
-# Add ticket update with WhatsApp notification
-def add_ticket_update(ticket_id, update_text, admin_name):
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        conn.execute(
-            text("INSERT INTO ticket_updates (ticket_id, update_text, updated_by) VALUES (:ticket_id, :update_text, :admin_name)"),
-            {"ticket_id": ticket_id, "update_text": update_text, "admin_name": admin_name}
-        )
-        conn.commit()
+    # -------------------- FETCH ADMIN USERS -------------------- #
+    def fetch_admin_users(self):
+        """Fetches all admin users."""
+        query = "SELECT id, name, whatsapp_number FROM admin_users"
+        df = pd.read_sql(query, self.engine)
+        return df.to_dict("records")
 
-    # Fetch the user's WhatsApp number
-    with engine.connect() as conn:
-        result = conn.execute(
-            text("SELECT u.whatsapp_number FROM users u JOIN tickets t ON u.id = t.user_id WHERE t.id = :ticket_id"),
-            {"ticket_id": ticket_id}
-        ).fetchone()
-        
-    if result:
-        user_whatsapp = result[0]
-        message = f"Your ticket #{ticket_id} has a new update from {admin_name}:\n\n\"{update_text}\""
-        send_whatsapp_message(user_whatsapp, message)  # ✅ Notify user about update
+    # -------------------- UPDATE TICKET STATUS -------------------- #
+    def update_ticket_status(self, ticket_id, new_status):
+        """Updates the ticket status and notifies the user via WhatsApp."""
+        with self.engine.connect() as conn:
+            conn.execute(
+                text("UPDATE tickets SET status = :new_status WHERE id = :ticket_id"),
+                {"new_status": new_status, "ticket_id": ticket_id}
+            )
+            conn.commit()
 
+            # Notify the user
+            result = conn.execute(
+                text("SELECT u.whatsapp_number FROM users u JOIN tickets t ON u.id = t.user_id WHERE t.id = :ticket_id"),
+                {"ticket_id": ticket_id}
+            ).fetchone()
+            
+        if result:
+            user_whatsapp = result[0]
+            message = f"Your ticket #{ticket_id} has been updated to: {new_status}"
+            send_whatsapp_message(user_whatsapp, message)  # ✅ Notify user via WhatsApp
 
+    # -------------------- ADD TICKET UPDATE -------------------- #
+    def add_ticket_update(self, ticket_id, update_text, admin_name):
+        """Logs an update on a ticket and notifies the user."""
+        with self.engine.connect() as conn:
+            conn.execute(
+                text("INSERT INTO ticket_updates (ticket_id, update_text, updated_by) VALUES (:ticket_id, :update_text, :admin_name)"),
+                {"ticket_id": ticket_id, "update_text": update_text, "admin_name": admin_name}
+            )
+            conn.commit()
 
+            # Fetch user's WhatsApp number
+            result = conn.execute(
+                text("SELECT u.whatsapp_number FROM users u JOIN tickets t ON u.id = t.user_id WHERE t.id = :ticket_id"),
+                {"ticket_id": ticket_id}
+            ).fetchone()
+            
+        if result:
+            user_whatsapp = result[0]
+            message = f"Your ticket #{ticket_id} has a new update from {admin_name}:\n\n\"{update_text}\""
+            send_whatsapp_message(user_whatsapp, message)  # ✅ Notify user
+
+    # -------------------- REASSIGN ADMIN -------------------- #
+    def reassign_ticket_admin(self, ticket_id, new_admin_id, old_admin_id, changed_by_admin, reason, is_super_admin=False):
+        """Reassigns a ticket to a new admin, logs the change, and allows Super Admins to override reassignment limits."""
+        with self.engine.connect() as conn:
+            # Get current reassignment count
+            reassign_count = conn.execute(
+                text("SELECT COUNT(*) FROM admin_change_log WHERE ticket_id = :ticket_id"),
+                {"ticket_id": ticket_id}
+            ).scalar()
+
+            # Limit reassignment to 3 times unless a Super Admin is performing the action
+            if reassign_count >= 3 and not is_super_admin:
+                return False, "⚠️ Reassignment limit reached. Only a Super Admin can override."
+
+            # Update assigned admin
+            conn.execute(
+                text("UPDATE tickets SET assigned_admin = :new_admin_id WHERE id = :ticket_id"),
+                {"new_admin_id": new_admin_id, "ticket_id": ticket_id}
+            )
+            conn.commit()
+
+            # Log reassignment
+            conn.execute(
+                text("""
+                    INSERT INTO admin_change_log (ticket_id, old_admin, new_admin, changed_by_admin, reason, reassign_count, changed_at, override_by_super_admin)
+                    VALUES (
+                        :ticket_id, :old_admin_id, :new_admin_id, :changed_by_admin, :reason, 
+                        :new_reassign_count, NOW(), :is_super_admin
+                    )
+                """),
+                {
+                    "ticket_id": ticket_id,
+                    "old_admin_id": old_admin_id,
+                    "new_admin_id": new_admin_id,
+                    "changed_by_admin": changed_by_admin,
+                    "reason": reason,
+                    "new_reassign_count": reassign_count + 1,
+                    "is_super_admin": is_super_admin
+                }
+            )
+            conn.commit()
+
+        # Notify new admin
+        result = self.fetch_admin_users()
+        for admin in result:
+            if admin["id"] == new_admin_id:
+                new_admin_whatsapp = admin["whatsapp_number"]
+                print(new_admin_whatsapp)
+                message = f"🔄 You have been assigned a new ticket #{ticket_id} by {changed_by_admin}.\n\nReason: {reason}"
+                print("sending message")
+                send_whatsapp_message(new_admin_whatsapp, message)
+                break
+
+        return True, "✅ Ticket reassigned successfully!"
+
+    # -------------------- FETCH ADMIN REASSIGNMENT LOG -------------------- #
+    def fetch_admin_reassignment_log(self):
+        """Fetches the history of admin reassignments."""
+        query = """
+        SELECT l.ticket_id, t.issue_description, u1.name AS old_admin, u2.name AS new_admin, 
+               l.changed_by_admin, l.reason, l.reassign_count, l.changed_at, l.override_by_super_admin 
+        FROM admin_change_log l
+        JOIN tickets t ON l.ticket_id = t.id
+        JOIN admin_users u1 ON l.old_admin = u1.id
+        JOIN admin_users u2 ON l.new_admin = u2.id
+        ORDER BY l.changed_at DESC
+        """
+
+        df = pd.read_sql(query, self.engine)
+        return df
+    
+    def get_all_properties(self):
+        """Fetches the history of admin reassignments."""
+        query = """
+        SELECT name from properties where 1
+        """
+
+        df = pd.read_sql(query, self.engine)
+        return df["name"].tolist() 

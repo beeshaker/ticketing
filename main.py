@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 import bcrypt
-from conn import get_db_connection, fetch_tickets, update_ticket_status, add_ticket_update  # ✅ Import from conn.py
+from conn import Conn
 from sqlalchemy.sql import text
 from whatsapp import send_whatsapp_message  # ✅ WhatsApp integration
 from license import LicenseManager
 from user_registration import user_registration_page
 
 
+db = Conn()
 # Session State for Authentication
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -29,15 +30,16 @@ def login():
     password = st.text_input("Password", type="password")
     
     if st.button("Login"):
-        engine = get_db_connection()
+        engine = db.engine
         with engine.connect() as conn:
-            query = text("SELECT name, password, property FROM admin_users WHERE username = :username")
+            query = text("SELECT name, id, password, property FROM admin_users WHERE username = :username")
             result = conn.execute(query, {"username": username}).fetchone()
             
-            if result and bcrypt.checkpw(password.encode(), result[1].encode()):
+            if result and bcrypt.checkpw(password.encode(), result[2].encode()):
                 st.session_state.authenticated = True
                 st.session_state.admin_name = result[0]
-                st.session_state.admin_property = result[2]  # Store admin property access
+                st.session_state.admin_id = result[1]
+                st.session_state.admin_property = result[3]  # Store admin property access
                 st.success(f"Welcome, {st.session_state.admin_name}!")
                 st.rerun()
             else:
@@ -59,6 +61,7 @@ menu_option = st.sidebar.radio("Navigation", menu_options)
 if menu_option == "Logout":
     st.session_state.authenticated = False
     st.session_state.admin_name = ""
+    st.session_state.admin_id = ""
     st.session_state.admin_property = ""
     st.success("Logged out successfully.")
     st.rerun()
@@ -67,44 +70,75 @@ if menu_option == "Logout":
 if menu_option == "CRM Main Dashboard":
     st.title("📊 CRM Dashboard")
     
-    # Fetch tickets
-    
     
 
-    all_tickets_df = fetch_tickets(st.session_state.admin_property)
+    # Fetch tickets
+    if st.session_state.admin_property == "All":
+        all_tickets_df = db.fetch_tickets("All")
+        tickets_df = all_tickets_df
+    else:
+        all_tickets_df = db.fetch_open_tickets( st.session_state.admin_id)
     tickets_df = all_tickets_df  
-    
+
     if not tickets_df.empty:
         st.subheader("🎟️ Open Tickets")
         st.dataframe(tickets_df)
-        
+
         ticket_id = st.selectbox("Select Ticket ID to update", tickets_df["id"].tolist())
         selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
-        
+
+        # Display Ticket Details
         st.write(f"**Issue:** {selected_ticket['issue_description']}")
+        st.write(f"**Category:** {selected_ticket['category']}")  # New: Show category
         st.write(f"**Property:** {selected_ticket['property']}")
         st.write(f"**Status:** {selected_ticket['status']}")
-        
+        st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")  # New: Show assigned admin
+
+        # -------------------- STATUS UPDATE -------------------- #
         new_status = st.selectbox("Update Status", ["Open", "In Progress", "Resolved"], 
                                   index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]))
         
         if st.button("Update Status"):
-            update_ticket_status(ticket_id, new_status)
-            st.success(f"Ticket #{ticket_id} status updated to {new_status}!")
+            db.update_ticket_status(ticket_id, new_status)
+            st.success(f"✅ Ticket #{ticket_id} status updated to {new_status}!")
             st.rerun()
-        
+
+        # -------------------- TICKET UPDATES -------------------- #
         update_text = st.text_area("Add Update")
         admin_name = st.session_state.admin_name  # Automatically assign logged-in admin name
-        
+
         if st.button("Submit Update"):
             if update_text:
-                add_ticket_update(ticket_id, update_text, admin_name)
-                st.success("Update added successfully!")
+                db.add_ticket_update(ticket_id, update_text, admin_name)
+                st.success("✅ Update added successfully!")
                 st.rerun()
             else:
-                st.error("Please provide update text.")
+                st.error("⚠️ Please provide update text.")
+
+        # -------------------- ADMIN REASSIGNMENT -------------------- #
+        st.subheader("🔄 Reassign Admin")
+
+        # Fetch all admin users from the database
+        admin_users = db.fetch_admin_users()  # Function to get admin list
+        admin_options = {admin["id"]: admin["name"] for admin in admin_users}
+        
+        # Exclude the currently assigned admin
+        available_admins = {k: v for k, v in admin_options.items() if v != selected_ticket["assigned_admin"]}
+        
+        new_admin_id = st.selectbox("Select New Admin", list(available_admins.keys()), format_func=lambda x: available_admins[x])
+
+        reassign_reason = st.text_area("Reason for Reassignment")
+
+        if st.button("Reassign Ticket"):
+            if new_admin_id and reassign_reason:
+                db.reassign_ticket_admin(ticket_id, new_admin_id, selected_ticket["assigned_admin"], admin_name, reassign_reason)
+                st.success(f"✅ Ticket #{ticket_id} reassigned to {available_admins[new_admin_id]}!")
+                st.rerun()
+            else:
+                st.error("⚠️ Please select a new admin and provide a reason.")
+
     else:
-        st.warning("No tickets found.")
+        st.warning("⚠️ No tickets found.")
  
         
         
@@ -113,7 +147,7 @@ elif menu_option == "Register User":
     
     def is_registered_user(whatsapp_number):
         """Checks if the WhatsApp number is registered in the database."""
-        engine = get_db_connection()
+        engine = db.engine
         with engine.connect() as conn:
             query = text("SELECT id FROM users WHERE whatsapp_number = :whatsapp_number")
             result = conn.execute(query, {"whatsapp_number": whatsapp_number}).fetchone()
@@ -126,7 +160,7 @@ if menu_option == "Admin User Creation":
     st.title("👤 Admin User Creation")
     
     def create_admin_user(name, username, password, property):
-        engine = get_db_connection()
+        engine = db.engine
         with engine.connect() as conn:
             try:
                 check_query = text("SELECT id FROM admin_users WHERE username = :username")
@@ -152,17 +186,19 @@ if menu_option == "Admin User Creation":
                 return True, "Admin user created successfully!"
             except Exception as e:
                 return False, f"Error creating admin user: {e}"
+            
+    properties = db.get_all_properties()
     
     with st.form("admin_user_form"):
         name = st.text_input("Full Name", placeholder="Enter admin's full name")
         username = st.text_input("Username", placeholder="Enter a unique username")
         password = st.text_input("Password", type="password", placeholder="Enter a strong password")
-        property = st.text_input("Property", placeholder="Enter property name (or 'All' for super admin)")
+        property_selection = st.selectbox("Select Property", properties)
         submit_button = st.form_submit_button("Create Admin User")
     
     if submit_button:
         if name and username and password and property:
-            success, message = create_admin_user(name, username, password, property)
+            success, message = create_admin_user(name, username, password, property_selection)
             if success:
                 st.success(message)
                 st.rerun()
@@ -174,7 +210,7 @@ if menu_option == "Admin User Creation":
     st.subheader("Registered Admin Users")
     
     def fetch_admin_users():
-        engine = get_db_connection()
+        engine = db.engine
         with engine.connect() as conn:
             query = text("SELECT id, name, username, property FROM admin_users")
             result = conn.execute(query)
@@ -188,3 +224,15 @@ if menu_option == "Admin User Creation":
         st.dataframe(df)
     else:
         st.warning("No admin users registered yet.")
+        
+    
+# -------------------- ADMIN REASSIGNMENT HISTORY PAGE -------------------- #
+if menu_option == "Admin Reassignment History":
+    st.title("📜 Admin Reassignment History")
+
+    reassign_log_df = db.fetch_admin_reassignment_log()
+
+    if not reassign_log_df.empty:
+        st.dataframe(reassign_log_df)
+    else:
+        st.warning("⚠️ No reassignments have been logged yet.")

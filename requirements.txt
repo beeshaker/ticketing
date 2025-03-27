@@ -1,0 +1,12 @@
+streamlit
+bcrypt
+SQLAlchemy
+pandas
+python-dotenv
+requests
+mysql-connector-python
+flask
+logging
+pandastable
+uuid
+datetime

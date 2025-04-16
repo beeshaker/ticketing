@@ -5,6 +5,8 @@ from conn import Conn
 from whatsapp import send_whatsapp_message, opt_in_user
 
 
+
+
 db= Conn()
 def register_user(name, whatsapp_number, property_name, unit_number):
     """Registers user and opts them into WhatsApp communication."""
@@ -41,14 +43,12 @@ def register_user(name, whatsapp_number, property_name, unit_number):
 
 
 def fetch_users():
-    engine = get_db_connection()
+    engine = db.engine
     with engine.connect() as conn:
         query = text("SELECT id, name, whatsapp_number, property, unit_number FROM users")
         result = conn.execute(query)
         users = result.fetchall()
     return users
-
-
 
 def user_registration_page():
     st.title("📲 WhatsApp User Registration")

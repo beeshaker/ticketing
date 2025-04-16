@@ -41,12 +41,14 @@ def register_user(name, whatsapp_number, property_name, unit_number):
 
 
 def fetch_users():
-    engine = db.engine()
+    engine = get_db_connection()
     with engine.connect() as conn:
         query = text("SELECT id, name, whatsapp_number, property, unit_number FROM users")
         result = conn.execute(query)
         users = result.fetchall()
     return users
+
+
 
 def user_registration_page():
     st.title("📲 WhatsApp User Registration")

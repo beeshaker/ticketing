@@ -97,8 +97,13 @@ class Conn:
 
         if result:
             user_whatsapp = result[0]
-            message = f"🛠️ Your ticket #{ticket_id} status has been updated to *{new_status}*."
-            self.send_whatsapp_notification(user_whatsapp, message)  # ✅ Uses central Flask endpoint
+            # 📩 Use the ticket_status_change template instead
+            self.send_template_notification(
+                to=user_whatsapp,
+                template_name="ticket_status_change",
+                template_parameters=[f"#{ticket_id}", new_status]
+            )
+
 
     # -------------------- ADD TICKET UPDATE -------------------- #
     def add_ticket_update(self, ticket_id, update_text, admin_name):
@@ -204,3 +209,29 @@ class Conn:
 
         df = pd.read_sql(query, self.engine)
         return df["name"].tolist() 
+
+
+
+    
+    
+    
+    def send_template_notification(self, to, template_name, template_parameters):
+        
+        """Sends a WhatsApp template message using the Flask backend API."""
+        url = "https://whatsapp-apricot-4dd582d192d1.herokuapp.com/send_message"
+        headers = {
+            "Content-Type": "application/json",
+            "X-API-KEY": os.getenv("INTERNAL_API_KEY")
+        }
+        payload = {
+            "to": to,
+            "template_name": template_name,
+            "template_parameters": template_parameters
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            return response.json()
+        except Exception as e:
+            return {"error": str(e)}
+

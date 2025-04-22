@@ -3,7 +3,6 @@ import pandas as pd
 import bcrypt
 from conn import Conn
 from sqlalchemy.sql import text
-from whatsapp import send_whatsapp_message  # ✅ WhatsApp integration
 from license import LicenseManager
 from user_registration import user_registration_page
 

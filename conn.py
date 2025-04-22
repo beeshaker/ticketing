@@ -214,6 +214,16 @@ class Conn:
         return df["name"].tolist() 
 
 
+    def fetch_ticket_media(self, ticket_id):
+        query = """
+            SELECT media_type, media_path 
+            FROM ticket_media 
+            WHERE ticket_id = :ticket_id
+        """
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn, params={"ticket_id": ticket_id})
+        return df
+
 
     
     

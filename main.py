@@ -50,9 +50,10 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ------------------ STREAMLIT UI SETUP ------------------ #
-menu_options = ["CRM Main Dashboard", "Register User", "Logout"]
+menu_options = ["CRM Main Dashboard", "Logout"]
 if st.session_state.admin_property == "All":
     menu_options.insert(1, "Admin User Creation")  # Show admin creation only if user manages "All"
+    menu_options.insert(2, "Register User")
 
 menu_option = st.sidebar.radio("Navigation", menu_options)
 
@@ -93,6 +94,26 @@ if menu_option == "CRM Main Dashboard":
         st.write(f"**Unit Number:** {selected_ticket['unit_number']}")
         st.write(f"**Status:** {selected_ticket['status']}")
         st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")  # New: Show assigned admin
+        
+        # -------------------- SHOW ATTACHED MEDIA -------------------- #
+        st.markdown("### 📎 Attached Files")
+        media_df = db.fetch_ticket_media(ticket_id)
+
+        if not media_df.empty:
+            for _, row in media_df.iterrows():
+                media_type = row["media_type"]
+                media_path = row["media_path"]
+
+                if media_type == "image":
+                    st.image(media_path, caption="Attached Image", use_column_width=True)
+                elif media_type == "video":
+                    st.video(media_path)
+                elif media_type == "document":
+                    st.markdown(f"[📄 View Document]({media_path})", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"📁 {media_type.capitalize()}: {media_path}")
+        else:
+            st.info("No media files attached to this ticket.")
 
         # -------------------- STATUS UPDATE -------------------- #
         new_status = st.selectbox("Update Status", ["Open", "In Progress", "Resolved"], 
@@ -116,30 +137,32 @@ if menu_option == "CRM Main Dashboard":
                 st.error("⚠️ Please provide update text.")
 
         # -------------------- ADMIN REASSIGNMENT -------------------- #
-        st.subheader("🔄 Reassign Admin")
+        if st.session_state.admin_property != "Caretaker":
+    
+            st.subheader("🔄 Reassign Admin")
 
-        # Fetch all admin users from the database
-        admin_users = db.fetch_admin_users()  # Function to get admin list
-        admin_options = {admin["id"]: admin["name"] for admin in admin_users}
-        
-        # Exclude the currently assigned admin
-        available_admins = {k: v for k, v in admin_options.items() if v != selected_ticket["assigned_admin"]}
-        
-        new_admin_id = st.selectbox("Select New Admin", list(available_admins.keys()), format_func=lambda x: available_admins[x])
+            # Fetch all admin users from the database
+            admin_users = db.fetch_admin_users()  # Function to get admin list
+            admin_options = {admin["id"]: admin["name"] for admin in admin_users}
+            
+            # Exclude the currently assigned admin
+            available_admins = {k: v for k, v in admin_options.items() if v != selected_ticket["assigned_admin"]}
+            
+            new_admin_id = st.selectbox("Select New Admin", list(available_admins.keys()), format_func=lambda x: available_admins[x])
 
-        reassign_reason = st.text_area("Reason for Reassignment")
+            reassign_reason = st.text_area("Reason for Reassignment")
 
-        if st.button("Reassign Ticket"):
-            if new_admin_id and reassign_reason:
-                db.reassign_ticket_admin(ticket_id, new_admin_id, selected_ticket["assigned_admin"], admin_name, reassign_reason)
-                st.success(f"✅ Ticket #{ticket_id} reassigned to {available_admins[new_admin_id]}!")
-                st.rerun()
-            else:
-                st.error("⚠️ Please select a new admin and provide a reason.")
+            if st.button("Reassign Ticket"):
+                if new_admin_id and reassign_reason:
+                    db.reassign_ticket_admin(ticket_id, new_admin_id, selected_ticket["assigned_admin"], admin_name, reassign_reason)
+                    st.success(f"✅ Ticket #{ticket_id} reassigned to {available_admins[new_admin_id]}!")
+                    st.rerun()
+                else:
+                    st.error("⚠️ Please select a new admin and provide a reason.")
 
-    else:
-        st.warning("⚠️ No tickets found.")
- 
+        else:
+            st.warning("⚠️ No tickets found.")
+    
         
         
 # ------------------  USER registration ------------------ #
@@ -194,11 +217,12 @@ if menu_option == "Admin User Creation":
         username = st.text_input("Username", placeholder="Enter a unique username")
         password = st.text_input("Password", type="password", placeholder="Enter a strong password")
         property_selection = st.selectbox("Select Property", properties)
+        admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"])
         submit_button = st.form_submit_button("Create Admin User")
     
     if submit_button:
         if name and username and password and property:
-            success, message = create_admin_user(name, username, password, property_selection)
+            success, message = create_admin_user(name, username, password, property_selection,admin_type)
             if success:
                 st.success(message)
                 st.rerun()

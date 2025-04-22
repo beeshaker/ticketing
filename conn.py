@@ -4,7 +4,8 @@ import pandas as pd
 import os
 from dotenv import load_dotenv
 from sqlalchemy.sql import text
-from whatsapp import send_whatsapp_message  # ✅ Importing WhatsApp messaging function
+import requests
+
 
 load_dotenv()
 
@@ -13,8 +14,8 @@ class Conn:
     
     def __init__(self):
         """Initialize database connection."""
-        #DB_URI = f"mysql+mysqlconnector://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
-        DB_URI = f"mysql+mysqlconnector://{st.secrets.DB_USER}:{st.secrets.DB_PASSWORD}@{st.secrets.DB_HOST}/{st.secrets.DB_NAME}"  # Using Streamlit secrets('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
+        DB_URI = f"mysql+mysqlconnector://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
+        #DB_URI = f"mysql+mysqlconnector://{st.secrets.DB_USER}:{st.secrets.DB_PASSWORD}@{st.secrets.DB_HOST}/{st.secrets.DB_NAME}"  # Using Streamlit secrets('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
         self.engine = create_engine(DB_URI)
 
     # -------------------- FETCH TICKETS -------------------- #
@@ -65,6 +66,21 @@ class Conn:
         return df.to_dict("records")
 
     # -------------------- UPDATE TICKET STATUS -------------------- #
+    def send_whatsapp_notification(self, to, message):
+        """Sends a WhatsApp message using the Flask backend API."""
+        url = "https://whatsapp-apricot-4dd582d192d1.herokuapp.com/send_message"  # 🔁 replace with actual
+        headers = {
+            "Content-Type": "application/json",
+            "X-API-KEY": os.getenv("INTERNAL_API_KEY")  # 🔐 for secure requests
+        }
+        payload = {"to": to, "message": message}
+
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            return response.json()
+        except Exception as e:
+            return {"error": str(e)}
+
     def update_ticket_status(self, ticket_id, new_status):
         """Updates the ticket status and notifies the user via WhatsApp."""
         with self.engine.connect() as conn:
@@ -74,21 +90,21 @@ class Conn:
             )
             conn.commit()
 
-            # Notify the user
             result = conn.execute(
                 text("SELECT u.whatsapp_number FROM users u JOIN tickets t ON u.id = t.user_id WHERE t.id = :ticket_id"),
                 {"ticket_id": ticket_id}
             ).fetchone()
-            
+
         if result:
             user_whatsapp = result[0]
-            message = f"Your ticket #{ticket_id} has been updated to: {new_status}"
-            send_whatsapp_message(user_whatsapp, message)  # ✅ Notify user via WhatsApp
+            message = f"🛠️ Your ticket #{ticket_id} status has been updated to *{new_status}*."
+            self.send_whatsapp_notification(user_whatsapp, message)  # ✅ Uses central Flask endpoint
 
     # -------------------- ADD TICKET UPDATE -------------------- #
     def add_ticket_update(self, ticket_id, update_text, admin_name):
         """Logs an update on a ticket and notifies the user."""
         with self.engine.connect() as conn:
+            # Insert the update into the DB
             conn.execute(
                 text("INSERT INTO ticket_updates (ticket_id, update_text, updated_by) VALUES (:ticket_id, :update_text, :admin_name)"),
                 {"ticket_id": ticket_id, "update_text": update_text, "admin_name": admin_name}
@@ -100,11 +116,12 @@ class Conn:
                 text("SELECT u.whatsapp_number FROM users u JOIN tickets t ON u.id = t.user_id WHERE t.id = :ticket_id"),
                 {"ticket_id": ticket_id}
             ).fetchone()
-            
+
         if result:
             user_whatsapp = result[0]
-            message = f"Your ticket #{ticket_id} has a new update from {admin_name}:\n\n\"{update_text}\""
-            send_whatsapp_message(user_whatsapp, message)  # ✅ Notify user
+            message = f"✍️ Your ticket #{ticket_id} has a new update from {admin_name}:\n\n\"{update_text}\""
+            self.send_whatsapp_notification(user_whatsapp, message)
+
 
     # -------------------- REASSIGN ADMIN -------------------- #
     def reassign_ticket_admin(self, ticket_id, new_admin_id, old_admin_id, changed_by_admin, reason, is_super_admin=False):
@@ -130,7 +147,10 @@ class Conn:
             # Log reassignment
             conn.execute(
                 text("""
-                    INSERT INTO admin_change_log (ticket_id, old_admin, new_admin, changed_by_admin, reason, reassign_count, changed_at, override_by_super_admin)
+                    INSERT INTO admin_change_log (
+                        ticket_id, old_admin, new_admin, changed_by_admin, reason, 
+                        reassign_count, changed_at, override_by_super_admin
+                    )
                     VALUES (
                         :ticket_id, :old_admin_id, :new_admin_id, :changed_by_admin, :reason, 
                         :new_reassign_count, NOW(), :is_super_admin
@@ -148,18 +168,17 @@ class Conn:
             )
             conn.commit()
 
-        # Notify new admin
+        # Notify new admin via WhatsApp
         result = self.fetch_admin_users()
         for admin in result:
             if admin["id"] == new_admin_id:
                 new_admin_whatsapp = admin["whatsapp_number"]
-                print(new_admin_whatsapp)
                 message = f"🔄 You have been assigned a new ticket #{ticket_id} by {changed_by_admin}.\n\nReason: {reason}"
-                print("sending message")
-                send_whatsapp_message(new_admin_whatsapp, message)
+                self.send_whatsapp_notification(new_admin_whatsapp, message)
                 break
 
         return True, "✅ Ticket reassigned successfully!"
+
 
     # -------------------- FETCH ADMIN REASSIGNMENT LOG -------------------- #
     def fetch_admin_reassignment_log(self):

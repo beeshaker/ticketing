@@ -22,8 +22,8 @@ class Conn:
     def fetch_tickets(self, property=None):
         """Fetches all tickets, ensuring previous admins can still view reassigned tickets."""
         query = """
-        SELECT t.id, u.whatsapp_number, u.name, u.unit_number, t.issue_description, t.status, t.created_at, 
-               t.property, t.category, a.name AS assigned_admin 
+        SELECT t.id, u.whatsapp_number, u.name,  t.issue_description, t.status, t.created_at, 
+               t.property, u.unit_number, t.category, a.name AS assigned_admin 
         FROM tickets t 
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
@@ -43,8 +43,8 @@ class Conn:
     def fetch_open_tickets(self, admin_id=None):
         """Fetch all open tickets, including category and assigned admin."""
         query = """
-        SELECT t.id, u.whatsapp_number, u.name, u.unit_number, t.issue_description, t.status, t.created_at, 
-               t.property, t.category, a.name AS assigned_admin 
+        SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
+               t.property, u.unit_number, t.category, a.name AS assigned_admin 
         FROM tickets t 
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id

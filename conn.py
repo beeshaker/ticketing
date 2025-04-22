@@ -178,8 +178,11 @@ class Conn:
         for admin in result:
             if admin["id"] == new_admin_id:
                 new_admin_whatsapp = admin["whatsapp_number"]
-                message = f"🔄 You have been assigned a new ticket #{ticket_id} by {changed_by_admin}.\n\nReason: {reason}"
-                self.send_whatsapp_notification(new_admin_whatsapp, message)
+                self.send_template_notification(
+                    to=new_admin_whatsapp,
+                    template_name="ticket_reassignment",
+                    template_parameters=[f"#{ticket_id}", changed_by_admin, reason]
+                )
                 break
 
         return True, "✅ Ticket reassigned successfully!"

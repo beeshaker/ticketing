@@ -5,6 +5,7 @@ from conn import Conn
 from sqlalchemy.sql import text
 from license import LicenseManager
 from user_registration import user_registration_page
+from io import BytesIO
 
 
 db = Conn()
@@ -97,21 +98,34 @@ if menu_option == "CRM Main Dashboard":
         
         # -------------------- SHOW ATTACHED MEDIA -------------------- #
         st.markdown("### 📎 Attached Files")
-        media_df = db.fetch_ticket_media(ticket_id)
+        media_df = db.fetch_ticket_media(ticket_id)  # Should return media_type, media_blob, and optionally filename
 
         if not media_df.empty:
             for _, row in media_df.iterrows():
                 media_type = row["media_type"]
-                media_path = row["media_path"]
+                media_blob = row["media_blob"]
+                filename = row.get("filename", "attachment")
 
                 if media_type == "image":
-                    st.image(media_path, caption="Attached Image", use_column_width=True)
+                    st.image(BytesIO(media_blob), caption="Attached Image", use_column_width=True)
+
                 elif media_type == "video":
-                    st.video(media_path)
+                    st.video(BytesIO(media_blob))
+
                 elif media_type == "document":
-                    st.markdown(f"[📄 View Document]({media_path})", unsafe_allow_html=True)
+                    st.download_button(
+                        label="📄 Download Document",
+                        data=media_blob,
+                        file_name=filename,
+                        mime="application/pdf"
+                    )
                 else:
-                    st.markdown(f"📁 {media_type.capitalize()}: {media_path}")
+                    st.download_button(
+                        label=f"📎 Download {media_type.capitalize()}",
+                        data=media_blob,
+                        file_name=filename,
+                        mime="application/octet-stream"
+                    )
         else:
             st.info("No media files attached to this ticket.")
 

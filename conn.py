@@ -14,15 +14,15 @@ class Conn:
     
     def __init__(self):
         """Initialize database connection."""
-        DB_URI = f"mysql+mysqlconnector://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
-        #DB_URI = f"mysql+mysqlconnector://{st.secrets.DB_USER}:{st.secrets.DB_PASSWORD}@{st.secrets.DB_HOST}/{st.secrets.DB_NAME}"  # Using Streamlit secrets('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
+        #DB_URI = f"mysql+mysqlconnector://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
+        DB_URI = f"mysql+mysqlconnector://{st.secrets.DB_USER}:{st.secrets.DB_PASSWORD}@{st.secrets.DB_HOST}/{st.secrets.DB_NAME}"  # Using Streamlit secrets('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
         self.engine = create_engine(DB_URI)
 
     # -------------------- FETCH TICKETS -------------------- #
     def fetch_tickets(self, property=None):
         """Fetches all tickets, ensuring previous admins can still view reassigned tickets."""
         query = """
-        SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
+        SELECT t.id, u.whatsapp_number, u.name, u.unit_number, t.issue_description, t.status, t.created_at, 
                t.property, t.category, a.name AS assigned_admin 
         FROM tickets t 
         JOIN users u ON t.user_id = u.id
@@ -43,7 +43,7 @@ class Conn:
     def fetch_open_tickets(self, admin_id=None):
         """Fetch all open tickets, including category and assigned admin."""
         query = """
-        SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
+        SELECT t.id, u.whatsapp_number, u.name, u.unit_number, t.issue_description, t.status, t.created_at, 
                t.property, t.category, a.name AS assigned_admin 
         FROM tickets t 
         JOIN users u ON t.user_id = u.id

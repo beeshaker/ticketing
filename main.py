@@ -67,7 +67,7 @@ if menu_option == "Logout":
 
 # -------------------- CRM MAIN DASHBOARD -------------------- #
 if menu_option == "CRM Main Dashboard":
-    st.title("📊 CRM Dashboard")
+    st.title("📊 Operations CRM Dashboard")
     
     
 
@@ -90,6 +90,7 @@ if menu_option == "CRM Main Dashboard":
         st.write(f"**Issue:** {selected_ticket['issue_description']}")
         st.write(f"**Category:** {selected_ticket['category']}")  # New: Show category
         st.write(f"**Property:** {selected_ticket['property']}")
+        st.write(f"**Unit Number:** {selected_ticket['unit_number']}")
         st.write(f"**Status:** {selected_ticket['status']}")
         st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")  # New: Show assigned admin
 

@@ -10,3 +10,4 @@ logging
 pandastable
 uuid
 datetime
+streamlit-timeline

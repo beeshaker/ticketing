@@ -6,6 +6,7 @@ from sqlalchemy.sql import text
 from license import LicenseManager
 from user_registration import user_registration_page
 from io import BytesIO
+from streamlit_timeline import timeline
 
 
 db = Conn()
@@ -130,6 +131,47 @@ if menu_option == "CRM Main Dashboard":
             st.info("No media files attached to this ticket.")
 
         # -------------------- STATUS UPDATE -------------------- #
+        
+        
+        history_df = db.fetch_ticket_history(ticket_id)
+
+        if not history_df.empty:
+            events = []
+            for _, row in history_df.iterrows():
+                dt = row["performed_at"]
+
+                # Choose a color based on action
+                bg_color = "#d1eaff" if row["action"] == "Update" else "#ffcccc"
+                text_color = "#000000"
+
+                # Build the event entry
+                events.append({
+                    "start_date": {
+                        "year": dt.year,
+                        "month": dt.month,
+                        "day": dt.day,
+                        "hour": dt.hour,
+                        "minute": dt.minute,
+                    },
+                    "text": {
+                        "headline": f"{row['action']} by {row['performed_by']}",
+                        "text": f"<div style='background-color:{bg_color};color:{text_color};padding:10px;border-radius:6px'>{row['details']}</div>"
+                    }
+                })
+
+            timeline({
+                "title": {
+                    "text": {
+                        "headline": f"🕒 Ticket #{ticket_id} History",
+                        "text": "Full record of updates and reassignments"
+                    }
+                },
+                "events": events
+            })
+        else:
+            st.info("No ticket history available.")
+            
+            
         new_status = st.selectbox("Update Status", ["Open", "In Progress", "Resolved"], 
                                   index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]))
         
@@ -176,8 +218,7 @@ if menu_option == "CRM Main Dashboard":
                 else:
                     st.error("⚠️ Please select a new admin and provide a reason.")
 
-            else:
-                st.warning("⚠️ No tickets found.")
+            
                 
             
             # -------------------- DUE DATE SECTION -------------------- #
@@ -191,6 +232,10 @@ if menu_option == "CRM Main Dashboard":
                 db.update_ticket_due_date(ticket_id, due_date)
                 st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
                 st.rerun()
+                
+        
+    else:
+        st.warning("⚠️ No tickets found.")
     
         
         

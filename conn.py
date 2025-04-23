@@ -44,7 +44,7 @@ class Conn:
         """Fetch all open tickets, including category and assigned admin."""
         query = """
         SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
-               t.property, u.unit_number, t.category, a.name AS assigned_admin 
+               t.property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date as Due_Date
         FROM tickets t 
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
@@ -56,6 +56,7 @@ class Conn:
         """
 
         df = pd.read_sql(query, self.engine, params=(admin_id, admin_id))
+        df["due_date"] = df["due_date"].where(pd.notnull(df["due_date"]), None)
         return df
 
     # -------------------- FETCH ADMIN USERS -------------------- #
@@ -68,7 +69,7 @@ class Conn:
     # -------------------- UPDATE TICKET STATUS -------------------- #
     def send_whatsapp_notification(self, to, message):
         """Sends a WhatsApp message using the Flask backend API."""
-        url = "https://whatsapp-apricot-4dd582d192d1.herokuapp.com/send_message"  # 🔁 replace with actual
+        url = st.secrets.URL  # 🔁 replace with actual
         headers = {
             "Content-Type": "application/json",
             "X-API-KEY": os.getenv("INTERNAL_API_KEY")  # 🔐 for secure requests
@@ -126,6 +127,42 @@ class Conn:
             user_whatsapp = result[0]
             message = f"✍️ Your ticket #{ticket_id} has a new update from {admin_name}:\n\n\"{update_text}\""
             self.send_whatsapp_notification(user_whatsapp, message)
+            
+            
+    #---------------------Ticket history --------------------#
+    
+    def fetch_ticket_history(self, ticket_id):
+        with self.engine.connect() as conn:
+            # Fetch ticket updates
+            updates = conn.execute(
+                text("""
+                    SELECT ticket_id, 'Update' AS action, updated_by AS performed_by,
+                        update_text AS details, created_at AS performed_at
+                    FROM ticket_updates
+                    WHERE ticket_id = :ticket_id
+                """),
+                {"ticket_id": ticket_id}
+            ).fetchall()
+
+            # Fetch reassignment logs
+            reassignments = conn.execute(
+                text("""
+                    SELECT ticket_id, 'Reassignment' AS action, changed_by_admin AS performed_by,
+                        CONCAT('Reassigned from ', old_admin, ' to ', new_admin, '. Reason: ', reason) AS details,
+                        changed_at AS performed_at
+                    FROM admin_change_log
+                    WHERE ticket_id = :ticket_id
+                """),
+                {"ticket_id": ticket_id}
+            ).fetchall()
+
+        # Combine and sort by performed_at
+        all_logs = updates + reassignments
+        df = pd.DataFrame(all_logs, columns=["ticket_id", "action", "performed_by", "details", "performed_at"])
+        df.sort_values(by="performed_at", inplace=True)
+
+        return df
+
 
 
     # -------------------- REASSIGN ADMIN -------------------- #
@@ -236,7 +273,7 @@ class Conn:
     def send_template_notification(self, to, template_name, template_parameters):
         
         """Sends a WhatsApp template message using the Flask backend API."""
-        url = "https://whatsapp-apricot-4dd582d192d1.herokuapp.com/send_message"
+        url = st.secrets.URL
         headers = {
             "Content-Type": "application/json",
             "X-API-KEY": os.getenv("INTERNAL_API_KEY")

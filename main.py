@@ -133,44 +133,67 @@ if menu_option == "CRM Main Dashboard":
         # -------------------- STATUS UPDATE -------------------- #
         
         
-        history_df = db.fetch_ticket_history(ticket_id)
+        with st.expander("📜 Ticket History", expanded=False):
+            # Inject CSS for background and text color
+            st.markdown("""
+                <style>
+                    .timeline {
+                        background-color: #f0f0f0 !important;
+                    }
+                    .tl-text-content, .tl-headline, .tl-title {
+                        color: black !important;
+                    }
+                    .tl-text-content p {
+                        color: black !important;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
 
-        if not history_df.empty:
-            events = []
-            for _, row in history_df.iterrows():
-                dt = row["performed_at"]
+            history_df = db.fetch_ticket_history(ticket_id)
 
-                # Choose a color based on action
-                bg_color = "#d1eaff" if row["action"] == "Update" else "#ffcccc"
-                text_color = "#000000"
+            if not history_df.empty:
+                events = []
+                for _, row in history_df.iterrows():
+                    dt = row["performed_at"]
+                    bg_color = "#E0E0E0"
+                    text_color = "#000000"
 
-                # Build the event entry
-                events.append({
-                    "start_date": {
-                        "year": dt.year,
-                        "month": dt.month,
-                        "day": dt.day,
-                        "hour": dt.hour,
-                        "minute": dt.minute,
+                    events.append({
+                        "start_date": {
+                            "year": dt.year,
+                            "month": dt.month,
+                            "day": dt.day,
+                            "hour": dt.hour,
+                            "minute": dt.minute,
+                        },
+                        "text": {
+                            "headline": f"{row['action']} by {row['performed_by']}",
+                            "text": f"""
+                                <div style='
+                                    background-color:{bg_color};
+                                    color:{text_color};
+                                    padding:12px;
+                                    border-radius:10px;
+                                    font-size:15px;
+                                    font-family:sans-serif;
+                                '>
+                                    {row['details']}
+                                </div>
+                            """
+                        }
+                    })
+
+                timeline({
+                    "title": {
+                        "text": {
+                            "headline": f"🕒 Ticket #{ticket_id} History",
+                            "text": "Full record of updates and reassignments"
+                        }
                     },
-                    "text": {
-                        "headline": f"{row['action']} by {row['performed_by']}",
-                        "text": f"<div style='background-color:{bg_color};color:{text_color};padding:10px;border-radius:6px'>{row['details']}</div>"
-                    }
+                    "events": events
                 })
-
-            timeline({
-                "title": {
-                    "text": {
-                        "headline": f"🕒 Ticket #{ticket_id} History",
-                        "text": "Full record of updates and reassignments"
-                    }
-                },
-                "events": events
-            })
-        else:
-            st.info("No ticket history available.")
-            
+            else:
+                st.info("No ticket history available.")
             
         new_status = st.selectbox("Update Status", ["Open", "In Progress", "Resolved"], 
                                   index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]))

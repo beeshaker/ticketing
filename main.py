@@ -14,7 +14,7 @@ db = Conn()
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.admin_name = ""
-    st.session_state.admin_property = ""
+    st.session_state.admin.role = ""
 
 # Page Configuration
 st.set_page_config(page_title="CRM Admin Portal", layout="wide")
@@ -33,14 +33,14 @@ def login():
     if st.button("Login"):
         engine = db.engine
         with engine.connect() as conn:
-            query = text("SELECT name, id, password, property FROM admin_users WHERE username = :username")
+            query = text("SELECT name, id, password, admin_type FROM admin_users WHERE username = :username")
             result = conn.execute(query, {"username": username}).fetchone()
             
             if result and bcrypt.checkpw(password.encode(), result[2].encode()):
                 st.session_state.authenticated = True
                 st.session_state.admin_name = result[0]
                 st.session_state.admin_id = result[1]
-                st.session_state.admin_property = result[3]  # Store admin property access
+                st.session_state.admin.role = result[3]  # Store admin property access
                 st.success(f"Welcome, {st.session_state.admin_name}!")
                 st.rerun()
             else:
@@ -53,7 +53,7 @@ if not st.session_state.authenticated:
 
 # ------------------ STREAMLIT UI SETUP ------------------ #
 menu_options = ["CRM Main Dashboard", "Logout"]
-if st.session_state.admin_property == "All":
+if st.session_state.admin.role == "Admin":
     menu_options.insert(1, "Admin User Creation")  # Show admin creation only if user manages "All"
     menu_options.insert(2, "Register User")
 
@@ -64,7 +64,7 @@ if menu_option == "Logout":
     st.session_state.authenticated = False
     st.session_state.admin_name = ""
     st.session_state.admin_id = ""
-    st.session_state.admin_property = ""
+    st.session_state.admin.role = ""
     st.success("Logged out successfully.")
     st.rerun()
 
@@ -75,7 +75,7 @@ if menu_option == "CRM Main Dashboard":
     
 
     # Fetch tickets
-    if st.session_state.admin_property == "All":
+    if st.session_state.admin.role == "All":
         all_tickets_df = db.fetch_tickets("All")
         tickets_df = all_tickets_df
     else:
@@ -228,7 +228,7 @@ if menu_option == "CRM Main Dashboard":
                 st.error("⚠️ Please provide update text.")
 
         # -------------------- ADMIN REASSIGNMENT -------------------- #
-        if st.session_state.admin_property != "Caretaker":
+        if st.session_state.admin.role != "Caretaker":
     
             st.subheader("🔄 Reassign Admin")
 

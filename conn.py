@@ -59,7 +59,7 @@ class Conn:
         AND t.status != 'Resolved';
         """
 
-        df = pd.read_sql(query, self.engine, params=(admin_id, admin_id))
+        df = pd.read_sql(query, self.engine, params={"admin_id": admin_id})
         df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
         
         return df

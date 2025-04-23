@@ -319,7 +319,7 @@ if menu_option == "Admin User Creation":
 
                 return True, "Admin user created successfully!"
             except Exception as e:
-            return False, f"Error creating admin user: {e}"
+                return False, f"Error creating admin user: {e}"
             
     properties = db.get_all_properties()
     

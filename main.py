@@ -107,7 +107,7 @@ if menu_option == "CRM Main Dashboard":
                 filename = row.get("filename", "attachment")
 
                 if media_type == "image":
-                    st.image(BytesIO(media_blob), caption="Attached Image", use_column_width=True)
+                    st.image(BytesIO(media_blob), caption="Attached Image", use_container_width=True)
 
                 elif media_type == "video":
                     st.video(BytesIO(media_blob))
@@ -165,6 +165,8 @@ if menu_option == "CRM Main Dashboard":
             new_admin_id = st.selectbox("Select New Admin", list(available_admins.keys()), format_func=lambda x: available_admins[x])
 
             reassign_reason = st.text_area("Reason for Reassignment")
+            
+            
 
             if st.button("Reassign Ticket"):
                 if new_admin_id and reassign_reason:
@@ -174,8 +176,21 @@ if menu_option == "CRM Main Dashboard":
                 else:
                     st.error("⚠️ Please select a new admin and provide a reason.")
 
-        else:
-            st.warning("⚠️ No tickets found.")
+            else:
+                st.warning("⚠️ No tickets found.")
+                
+            
+            # -------------------- DUE DATE SECTION -------------------- #
+            st.subheader("📅 Set Due Date")
+
+            current_due_date = selected_ticket.get("due_date")
+
+            due_date = st.date_input("Select Due Date", value=pd.to_datetime(current_due_date) if current_due_date else None)
+
+            if st.button("Update Due Date"):
+                db.update_ticket_due_date(ticket_id, due_date)
+                st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
+                st.rerun()
     
         
         

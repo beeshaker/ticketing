@@ -223,8 +223,15 @@ class Conn:
         return df
 
 
-    
-    
+    def update_ticket_due_date(self, ticket_id, due_date):
+        """Updates the due date of a ticket."""
+        with self.engine.connect() as conn:
+            conn.execute(
+                text("UPDATE tickets SET due_date = :due_date WHERE id = :ticket_id"),
+                {"due_date": due_date, "ticket_id": ticket_id}
+            )
+            conn.commit()
+        
     
     def send_template_notification(self, to, template_name, template_parameters):
         

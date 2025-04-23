@@ -140,11 +140,23 @@ if menu_option == "CRM Main Dashboard":
                     .timeline {
                         background-color: #f0f0f0 !important;
                     }
+
                     .tl-text-content, .tl-headline, .tl-title {
                         color: black !important;
+                        font-weight: bold !important;
                     }
+
                     .tl-text-content p {
                         color: black !important;
+                        font-size: 16px !important;
+                    }
+
+                    /* Improve visibility for bottom timeline items (event preview texts) */
+                    .tl-timegroup .tl-time .tl-time-display,
+                    .tl-event-title,
+                    .tl-headline-date {
+                        color: #111 !important;
+                        font-weight: 700 !important;
                     }
                 </style>
             """, unsafe_allow_html=True)

@@ -272,8 +272,9 @@ class Conn:
             result = conn.execute(
                 text("SELECT admin_type, property_id FROM admin_users WHERE id = :id"),
                 {"id": admin_id}
-            ).fetchone()
-            return dict(result) if result else None
+            ).mappings().fetchone()  # 👈 this returns a RowMapping (dict-like)
+            return result if result else None
+
 
 
     # -------------------- FETCH ADMIN REASSIGNMENT LOG -------------------- #

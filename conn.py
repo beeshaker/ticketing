@@ -23,7 +23,7 @@ class Conn:
         """Fetches all tickets, ensuring previous admins can still view reassigned tickets."""
         query = """
         SELECT t.id, u.whatsapp_number, u.name,  t.issue_description, t.status, t.created_at, 
-               t.property, u.unit_number, t.category, a.name AS assigned_admin 
+               t.property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date as Due_Date
         FROM tickets t 
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
@@ -37,6 +37,7 @@ class Conn:
             params["property"] = property
 
         df = pd.read_sql(query, self.engine, params=params)
+        df["due_date"] = df["due_date"].where(pd.notnull(df["due_date"]), None)
         return df
 
     # -------------------- FETCH OPEN TICKETS -------------------- #

@@ -38,6 +38,7 @@ class Conn:
 
         df = pd.read_sql(query, self.engine, params=params)
         df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
+        df.set_index('t.id', inplace=True)
         return df
 
     # -------------------- FETCH OPEN TICKETS -------------------- #
@@ -58,6 +59,7 @@ class Conn:
 
         df = pd.read_sql(query, self.engine, params=(admin_id, admin_id))
         df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
+        df.set_index('t.id', inplace=True)
         return df
 
     # -------------------- FETCH ADMIN USERS -------------------- #

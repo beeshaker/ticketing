@@ -37,7 +37,7 @@ class Conn:
             params["property"] = property
 
         df = pd.read_sql(query, self.engine, params=params)
-        df["due_date"] = df["due_date"].where(pd.notnull(df["due_date"]), None)
+        df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
         return df
 
     # -------------------- FETCH OPEN TICKETS -------------------- #
@@ -57,7 +57,7 @@ class Conn:
         """
 
         df = pd.read_sql(query, self.engine, params=(admin_id, admin_id))
-        df["due_date"] = df["due_date"].where(pd.notnull(df["due_date"]), None)
+        df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
         return df
 
     # -------------------- FETCH ADMIN USERS -------------------- #

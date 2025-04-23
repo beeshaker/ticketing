@@ -75,7 +75,7 @@ if menu_option == "CRM Main Dashboard":
     
 
     # Fetch tickets
-    if st.session_state.admin_role == "All":
+    if st.session_state.admin_role == "Admin":
         all_tickets_df = db.fetch_tickets("All")
         tickets_df = all_tickets_df
     else:

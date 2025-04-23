@@ -247,7 +247,7 @@ class Conn:
                 ).fetchone()
 
                 if supervisor_row:
-                    supervisor_id, supervisor_whatsapp = supervisor_row
+                    supervisor_id, supervisor_name, supervisor_whatsapp = supervisor_row
 
                     if changed_by_admin != supervisor_id:
                         caretaker_name = None

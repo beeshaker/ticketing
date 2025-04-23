@@ -292,33 +292,34 @@ elif menu_option == "Register User":
 if menu_option == "Admin User Creation":
     st.title("👤 Admin User Creation")
     
-    def create_admin_user(name, username, password, property):
+    def create_admin_user(name, username, password, property_id, admin_type):
         engine = db.engine
         with engine.connect() as conn:
             try:
                 check_query = text("SELECT id FROM admin_users WHERE username = :username")
                 existing_admin = conn.execute(check_query, {"username": username}).fetchone()
-                
+
                 if existing_admin:
                     return False, "Admin user already exists."
-                
+
                 hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-                
+
                 insert_query = text("""
-                    INSERT INTO admin_users (name, username, password, property) 
-                    VALUES (:name, :username, :password, :property)
+                    INSERT INTO admin_users (name, username, password, property_id, admin_type) 
+                    VALUES (:name, :username, :password, :property_id, :admin_type)
                 """)
                 conn.execute(insert_query, {
                     "name": name,
                     "username": username,
                     "password": hashed_password,
-                    "property": property
+                    "property_id": property_id if admin_type == "Caretaker" and property_id != "None" else None,
+                    "admin_type": admin_type
                 })
                 conn.commit()
-                
+
                 return True, "Admin user created successfully!"
             except Exception as e:
-                return False, f"Error creating admin user: {e}"
+            return False, f"Error creating admin user: {e}"
             
     properties = db.get_all_properties()
     

@@ -346,7 +346,15 @@ if menu_option == "Admin User Creation":
     def fetch_admin_users():
         engine = db.engine
         with engine.connect() as conn:
-            query = text("SELECT id, name, username, property FROM admin_users")
+            query = text("""
+    SELECT 
+        a.id, 
+        a.name, 
+        a.username, 
+        p.name AS property 
+    FROM admin_users a
+    LEFT JOIN properties p ON a.property_id = p.id
+""")
             result = conn.execute(query)
             admins = result.fetchall()
         return admins

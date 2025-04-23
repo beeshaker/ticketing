@@ -22,12 +22,13 @@ class Conn:
     def fetch_tickets(self, property=None):
         """Fetches all tickets, ensuring previous admins can still view reassigned tickets."""
         query = """
-        SELECT t.id, u.whatsapp_number, u.name,  t.issue_description, t.status, t.created_at, 
-               t.property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date as Due_Date
-        FROM tickets t 
+        SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
+        p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date AS Due_Date
+        FROM tickets t
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
-        WHERE t.status != 'Resolved';
+        LEFT JOIN properties p ON t.property_id = p.id
+        WHERE t.status != 'Resolved'
         """
 
         params = {}
@@ -46,13 +47,14 @@ class Conn:
         """Fetch all open tickets, including category and assigned admin."""
         query = """
         SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
-               t.property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date as Due_Date
-        FROM tickets t 
+        p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date AS Due_Date
+        FROM tickets t
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
+        LEFT JOIN properties p ON t.property_id = p.id
         WHERE (
-            t.assigned_admin = %s 
-            OR t.id IN (SELECT ticket_id FROM admin_change_log WHERE old_admin = %s)
+            t.assigned_admin = :admin_id 
+            OR t.id IN (SELECT ticket_id FROM admin_change_log WHERE old_admin = :admin_id)
         )
         AND t.status != 'Resolved';
         """
@@ -213,19 +215,63 @@ class Conn:
             )
             conn.commit()
 
-        # Notify new admin via WhatsApp
-        result = self.fetch_admin_users()
-        for admin in result:
-            if admin["id"] == new_admin_id:
-                new_admin_whatsapp = admin["whatsapp_number"]
-                self.send_template_notification(
-                    to=new_admin_whatsapp,
-                    template_name="ticket_reassignment",
-                    template_parameters=[f"#{ticket_id}", changed_by_admin, reason]
-                )
-                break
+            # Notify new admin via WhatsApp
+            result = self.fetch_admin_users()
+            new_admin_whatsapp = None
+            for admin in result:
+                if admin["id"] == new_admin_id:
+                    new_admin_whatsapp = admin["whatsapp_number"]
+                    self.send_template_notification(
+                        to=new_admin_whatsapp,
+                        template_name="ticket_reassignment",
+                        template_parameters=[f"#{ticket_id}", changed_by_admin, reason]
+                    )
+                    break
+
+            # ✅ Notify the supervisor if the new admin is a caretaker
+            caretaker_check = self.get_admin_role_and_property(new_admin_id)
+            if caretaker_check and caretaker_check["admin_type"] == "Caretaker":
+                caretaker_property_id = caretaker_check["property_id"]
+
+                # Get the supervisor for the caretaker's property
+                supervisor_row = conn.execute(
+                    text("""
+                        SELECT p.supervisor_id, s.name, s.whatsapp_number
+                        FROM properties p
+                        JOIN admin_users s ON p.supervisor_id = s.id
+                        WHERE p.id = :property_id
+                    """),
+                    {"property_id": caretaker_property_id}
+                ).fetchone()
+
+                if supervisor_row:
+                    supervisor_id, supervisor_whatsapp = supervisor_row
+
+                    if changed_by_admin != supervisor_id:
+                        caretaker_name = None
+                        for admin in result:
+                            if admin["id"] == new_admin_id:
+                                caretaker_name = admin["name"]
+                                break
+
+                        # Send template message to the supervisor
+                        self.send_template_notification(
+                            to=supervisor_whatsapp,
+                            template_name="caretaker_assigned_alert",
+                            template_parameters=[f"#{ticket_id}", caretaker_name]
+                        )
 
         return True, "✅ Ticket reassigned successfully!"
+
+
+    def get_admin_role_and_property(self, admin_id):
+        """Returns the admin_type and property_id for a given admin ID."""
+        with self.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT admin_type, property_id FROM admin_users WHERE id = :id"),
+                {"id": admin_id}
+            ).fetchone()
+            return dict(result) if result else None
 
 
     # -------------------- FETCH ADMIN REASSIGNMENT LOG -------------------- #
@@ -292,4 +338,43 @@ class Conn:
             return response.json()
         except Exception as e:
             return {"error": str(e)}
+        
+        
+        
+    def create_property(self, property_name, supervisor_id):
+        """Create a new property with a unique name and assign a supervisor."""
+        with self.engine.connect() as conn:
+            # Check for duplicate property name
+            existing = conn.execute(
+                text("SELECT id FROM properties WHERE name = :name"),
+                {"name": property_name}
+            ).fetchone()
+
+            if existing:
+                return False, "❌ Property with this name already exists."
+
+            try:
+                conn.execute(
+                    text("INSERT INTO properties (name, supervisor_id) VALUES (:name, :supervisor_id)"),
+                    {"name": property_name, "supervisor_id": supervisor_id}
+                )
+                conn.commit()
+                return True, "✅ Property created successfully!"
+            except Exception as e:
+                return False, f"❌ Failed to create property: {e}"
+            
+            
+    def get_available_property_managers(self):
+        """Fetch all users who are Property Managers (supervisors)."""
+        query = """
+        SELECT id, name
+        FROM admin_users
+        WHERE admin_type = 'Property Manager'
+        """
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn)
+        return df.to_dict("records")
+    
+    
+
 

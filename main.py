@@ -369,3 +369,31 @@ if menu_option == "Admin Reassignment History":
         st.dataframe(reassign_log_df)
     else:
         st.warning("⚠️ No reassignments have been logged yet.")
+
+# -------------------- Property Creation PAGE -------------------- #
+if menu_option == "Create Property":
+    st.title("🏘️ Create New Property")
+
+    # 🔐 Check if user is an admin
+    if st.session_state.get("admin_type") != "Admin":
+        st.warning("Only admins can access this page.")
+        st.stop()
+
+    conn = Conn()
+
+    # Fetch available property managers (supervisors)
+    supervisors = conn.get_available_property_managers()
+    supervisor_options = {f"{s['name']} (ID: {s['id']})": s['id'] for s in supervisors}
+
+    with st.form("create_property_form"):
+        name = st.text_input("Property Name", placeholder="e.g., Westview Apartments")
+        selected_supervisor = st.selectbox("Assign Property Manager", options=supervisor_options.keys())
+        submit = st.form_submit_button("Create Property")
+
+    if submit:
+        success, msg = conn.create_property(name, supervisor_options[selected_supervisor])
+        if success:
+            st.success(msg)
+            st.rerun()
+        else:
+            st.error(msg)

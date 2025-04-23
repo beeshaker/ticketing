@@ -56,6 +56,7 @@ menu_options = ["CRM Main Dashboard", "Logout"]
 if st.session_state.admin_role == "Admin":
     menu_options.insert(1, "Admin User Creation")  # Show admin creation only if user manages "All"
     menu_options.insert(2, "Register User")
+    menu_options.insert(2, "Create Property")
 
 menu_option = st.sidebar.radio("Navigation", menu_options)
 
@@ -374,10 +375,6 @@ if menu_option == "Admin Reassignment History":
 if menu_option == "Create Property":
     st.title("🏘️ Create New Property")
 
-    # 🔐 Check if user is an admin
-    if st.session_state.get("admin_type") != "Admin":
-        st.warning("Only admins can access this page.")
-        st.stop()
 
     conn = Conn()
 

@@ -23,7 +23,7 @@ class Conn:
         """Fetches all tickets, ensuring previous admins can still view reassigned tickets."""
         query = """
         SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
-        p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date AS Due_Date
+            p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date AS Due_Date
         FROM tickets t
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
@@ -31,38 +31,40 @@ class Conn:
         WHERE t.status != 'Resolved'
         """
 
-        params = {}
-
+        params = ()
+        
         if property and property != "All":
-            query += " AND t.property = :property"
-            params["property"] = property
+            query += " AND p.name = %s"
+            params = (property,)
 
         df = pd.read_sql(query, self.engine, params=params)
         df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
         
         return df
 
+
     # -------------------- FETCH OPEN TICKETS -------------------- #
     def fetch_open_tickets(self, admin_id=None):
         """Fetch all open tickets, including category and assigned admin."""
         query = """
         SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
-        p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date AS Due_Date
+            p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date AS Due_Date
         FROM tickets t
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
         LEFT JOIN properties p ON t.property_id = p.id
         WHERE (
-            t.assigned_admin = :admin_id 
-            OR t.id IN (SELECT ticket_id FROM admin_change_log WHERE old_admin = :admin_id)
+            t.assigned_admin = %s 
+            OR t.id IN (SELECT ticket_id FROM admin_change_log WHERE old_admin = %s)
         )
-        AND t.status != 'Resolved';
+        AND t.status != 'Resolved'
         """
 
-        df = pd.read_sql(query, self.engine, params={"admin_id": admin_id})
+        df = pd.read_sql(query, self.engine, params=(admin_id, admin_id))
         df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
         
         return df
+
 
     # -------------------- FETCH ADMIN USERS -------------------- #
     def fetch_admin_users(self):

@@ -327,10 +327,8 @@ if menu_option == "Admin User Creation":
         username = st.text_input("Username", placeholder="Enter a unique username")
         password = st.text_input("Password", type="password", placeholder="Enter a strong password")
         admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"])
-        property_selection = None
-        if admin_type == "Caretaker":
-            properties = db.get_all_properties()
-            property_selection = st.selectbox("Assign Property", ["None"] + properties)
+        properties = db.get_all_properties()
+        property_selection = st.selectbox("Assign Property", ["None"] + properties)
         
         submit_button = st.form_submit_button("Create Admin User")
     

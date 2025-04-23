@@ -155,7 +155,7 @@ if menu_option == "CRM Main Dashboard":
                     .tl-timegroup .tl-time .tl-time-display,
                     .tl-event-title,
                     .tl-headline-date {
-                        color: #111 !important;
+                        color: #8B0000 !important;
                         font-weight: 700 !important;
                     }
                 </style>

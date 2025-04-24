@@ -71,12 +71,14 @@ class Conn:
         """Fetches all admin users."""
         query = "SELECT id, name, whatsapp_number FROM admin_users"
         df = pd.read_sql(query, self.engine)
+      
         return df.to_dict("records")
 
     # -------------------- UPDATE TICKET STATUS -------------------- #
     def send_whatsapp_notification(self, to, message):
         """Sends a WhatsApp message using the Flask backend API."""
         url = st.secrets.URL  # 🔁 replace with actual
+        #url = os.getenv("URL")
         headers = {
             "Content-Type": "application/json",
             "X-API-KEY": os.getenv("INTERNAL_API_KEY")  # 🔐 for secure requests
@@ -174,99 +176,116 @@ class Conn:
 
     # -------------------- REASSIGN ADMIN -------------------- #
     def reassign_ticket_admin(self, ticket_id, new_admin_id, old_admin_id, changed_by_admin, reason, is_super_admin=False):
-        """Reassigns a ticket to a new admin, logs the change, and allows Super Admins to override reassignment limits."""
-        with self.engine.connect() as conn:
-            # Get current reassignment count
-            reassign_count = conn.execute(
-                text("SELECT COUNT(*) FROM admin_change_log WHERE ticket_id = :ticket_id"),
-                {"ticket_id": ticket_id}
-            ).scalar()
+        """Reassigns a ticket to a new admin, logs the change, and sends WhatsApp notifications if needed."""
+        try:
+            with self.engine.connect() as conn:
+                print("🔁 Starting ticket reassignment process...")
 
-            # Limit reassignment to 3 times unless a Super Admin is performing the action
-            if reassign_count >= 3 and not is_super_admin:
-                return False, "⚠️ Reassignment limit reached. Only a Super Admin can override."
+                # Step 1: Check reassignment count
+                reassign_count = conn.execute(
+                    text("SELECT reassign_count FROM admin_change_log WHERE ticket_id = :ticket_id"),
+                    {"ticket_id": ticket_id}
+                ).scalar()
+                print(f"🔢 Reassign count for ticket #{ticket_id}: {reassign_count}")
 
-            # Update assigned admin
-            conn.execute(
-                text("UPDATE tickets SET assigned_admin = :new_admin_id WHERE id = :ticket_id"),
-                {"new_admin_id": new_admin_id, "ticket_id": ticket_id}
-            )
-            conn.commit()
+                if reassign_count >= 3 and not is_super_admin:
+                    print("🚫 Reassignment limit reached")
+                    return False, "⚠️ Reassignment limit reached. Only a Super Admin can override."
 
-            # Log reassignment
-            conn.execute(
-                text("""
-                    INSERT INTO admin_change_log (
-                        ticket_id, old_admin, new_admin, changed_by_admin, reason, 
-                        reassign_count, changed_at, override_by_super_admin
-                    )
-                    VALUES (
-                        :ticket_id, :old_admin_id, :new_admin_id, :changed_by_admin, :reason, 
-                        :new_reassign_count, NOW(), :is_super_admin
-                    )
-                """),
-                {
-                    "ticket_id": ticket_id,
-                    "old_admin_id": old_admin_id,
-                    "new_admin_id": new_admin_id,
-                    "changed_by_admin": changed_by_admin,
-                    "reason": reason,
-                    "new_reassign_count": reassign_count + 1,
-                    "is_super_admin": is_super_admin
-                }
-            )
-            conn.commit()
+                # Step 2: Update ticket with new admin
+                conn.execute(
+                    text("UPDATE tickets SET assigned_admin = :new_admin_id WHERE id = :ticket_id"),
+                    {"new_admin_id": new_admin_id, "ticket_id": ticket_id}
+                )
+                print(f"✅ Updated ticket #{ticket_id} with new admin ID {new_admin_id}")
 
-            # Notify new admin via WhatsApp
-            result = self.fetch_admin_users()
-            new_admin_whatsapp = None
-            for admin in result:
-                if admin["id"] == new_admin_id:
-                    new_admin_whatsapp = admin["whatsapp_number"]
-                    self.send_template_notification(
-                        to=new_admin_whatsapp,
-                        template_name="ticket_reassignment",
-                        template_parameters=[f"#{ticket_id}", changed_by_admin, reason]
-                    )
-                    break
-            print(f"📤 Sending reassignment ({new_admin_whatsapp})")
-
-            # ✅ Notify the supervisor if the new admin is a caretaker
-            caretaker_check = self.get_admin_role_and_property(new_admin_id)
-            if caretaker_check and caretaker_check["admin_type"] == "Caretaker":
-                caretaker_property_id = caretaker_check["property_id"]
-
-                # Get the supervisor for the caretaker's property
-                supervisor_row = conn.execute(
+                # Step 3: Log reassignment
+                conn.execute(
                     text("""
-                        SELECT p.supervisor_id, s.name, s.whatsapp_number
-                        FROM properties p
-                        JOIN admin_users s ON p.supervisor_id = s.id
-                        WHERE p.id = :property_id
-                    """),
-                    {"property_id": caretaker_property_id}
-                ).fetchone()
-
-                if supervisor_row:
-                    supervisor_id, supervisor_name, supervisor_whatsapp = supervisor_row
-
-                    if changed_by_admin != supervisor_id:
-                        caretaker_name = None
-                        for admin in result:
-                            if admin["id"] == new_admin_id:
-                                caretaker_name = admin["name"]
-                                break
-
-                        # Send template message to the supervisor
-                        print(f"📤 Sending reassignment message to {supervisor_name} ({supervisor_whatsapp})")
-                        self.send_template_notification(                            
-                            to=supervisor_whatsapp,
-                            template_name="caretaker_assigned_alert",
-                            template_parameters=[f"#{ticket_id}", caretaker_name]
-                            
+                        INSERT INTO admin_change_log (
+                            ticket_id, old_admin, new_admin, changed_by_admin, reason,
+                            reassign_count, changed_at, override_by_super_admin
+                        ) VALUES (
+                            :ticket_id, :old_admin_id, :new_admin_id, :changed_by_admin, :reason,
+                            :reassign_count, NOW(), :is_super_admin
                         )
+                    """),
+                    {
+                        "ticket_id": ticket_id,
+                        "old_admin_id": old_admin_id,
+                        "new_admin_id": new_admin_id,
+                        "changed_by_admin": changed_by_admin,
+                        "reason": reason,
+                        "reassign_count": reassign_count + 1,
+                        "is_super_admin": is_super_admin
+                    }
+                )
+                conn.commit()
+                print("📝 Reassignment logged and committed to database.")
 
-        return True, "✅ Ticket reassigned successfully!"
+                # Step 4: Fetch new admin details
+                admin_users = self.fetch_admin_users()
+                print("📥 Retrieved admin list.")
+
+                new_admin_info = next((admin for admin in admin_users if str(admin["id"]) == str(new_admin_id)), None)
+                if new_admin_info:
+                    new_admin_name = new_admin_info["name"]
+                    new_admin_whatsapp = new_admin_info.get("whatsapp_number")
+                    if new_admin_whatsapp:
+                        try:
+                            print(f"📤 Sending WhatsApp to new admin {new_admin_name} ({new_admin_whatsapp})")
+                            self.send_template_notification(
+                                to=new_admin_whatsapp,
+                                template_name="ticket_reassignment",
+                                template_parameters=[f"#{ticket_id}", changed_by_admin, reason]
+                            )
+                        except Exception as notify_err:
+                            print(f"❌ Failed to send WhatsApp to new admin: {notify_err}")
+                    else:
+                        print("⚠️ New admin has no WhatsApp number.")
+                else:
+                    print("❌ New admin not found in admin_users list.")
+
+                # Step 5: If the new admin is a caretaker, notify their supervisor
+                caretaker_info = self.get_admin_role_and_property(new_admin_id)
+                print("👤 Caretaker role check result:", caretaker_info)
+
+                if caretaker_info and caretaker_info["admin_type"] == "Caretaker":
+                    property_id = caretaker_info["property_id"]
+
+                    supervisor = conn.execute(
+                        text("""
+                            SELECT s.id AS supervisor_id, s.name AS supervisor_name, s.whatsapp_number
+                            FROM properties p
+                            JOIN admin_users s ON p.supervisor_id = s.id
+                            WHERE p.id = :property_id
+                        """),
+                        {"property_id": property_id}
+                    ).fetchone()
+
+                    if supervisor:
+                        if str(supervisor.supervisor_id) != str(changed_by_admin):
+                            try:
+                                print(f"📤 Notifying supervisor {supervisor.supervisor_name} ({supervisor.whatsapp_number})")
+                                self.send_template_notification(
+                                    to=supervisor.whatsapp_number,
+                                    template_name="caretaker_task_alert",
+                                    template_parameters=[f"#{ticket_id}", new_admin_name]
+                                )
+                            except Exception as sup_notify_err:
+                                print(f"❌ Failed to notify supervisor: {sup_notify_err}")
+                        else:
+                            print("ℹ️ Supervisor performed the reassignment. No alert sent.")
+                    else:
+                        print("⚠️ Supervisor not found for caretaker’s property.")
+
+            print("✅ Reassignment process completed.")
+            return True, "✅ Ticket reassigned successfully!"
+
+        except Exception as e:
+            print(f"❌ Unexpected error in reassign_ticket_admin: {e}")
+            return False, "❌ An unexpected error occurred during reassignment."
+
 
 
     def get_admin_role_and_property(self, admin_id):
@@ -329,6 +348,7 @@ class Conn:
         
         """Sends a WhatsApp template message using the Flask backend API."""
         url = st.secrets.URL
+        #url = os.getenv("URL")
         headers = {
             "Content-Type": "application/json",
             "X-API-KEY": os.getenv("INTERNAL_API_KEY")

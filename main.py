@@ -247,6 +247,7 @@ if menu_option == "CRM Main Dashboard":
             
 
             if st.button("Reassign Ticket"):
+                print("clicked")
                 if new_admin_id and reassign_reason:
                     db.reassign_ticket_admin(ticket_id, new_admin_id, selected_ticket["assigned_admin"], admin_name, reassign_reason)
                     st.success(f"✅ Ticket #{ticket_id} reassigned to {available_admins[new_admin_id]}!")
@@ -325,6 +326,7 @@ if menu_option == "Admin User Creation":
     
     with st.form("admin_user_form"):
         name = st.text_input("Full Name", placeholder="Enter admin's full name")
+        whatsapp_number = st.text_input("Whatsapp_number", placeholder="Eg 254724123456")
         username = st.text_input("Username", placeholder="Enter a unique username")
         password = st.text_input("Password", type="password", placeholder="Enter a strong password")
         admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"])

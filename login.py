@@ -3,7 +3,7 @@ from sqlalchemy.sql import text
 import bcrypt
 from conn import Conn
 # Page Configuration
-st.set_page_config(page_title="CRM Admin Portal", layout="wide")
+
 db = Conn()
 
 # Custom CSS for Dark Mode Styling

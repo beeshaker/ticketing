@@ -11,3 +11,4 @@ pandastable
 uuid
 datetime
 streamlit-timeline
+streamlit-option-menu

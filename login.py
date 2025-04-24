@@ -5,8 +5,6 @@ from conn import Conn
 
 db = Conn()
 
-# Page Setup
-st.set_page_config(page_title="Admin Login", layout="centered")
 
 # Custom CSS for Dark Mode Styling
 st.markdown("""

@@ -2,60 +2,19 @@ import streamlit as st
 from sqlalchemy.sql import text
 import bcrypt
 from conn import Conn
-# Page Configuration
 
 db = Conn()
 
-# Custom CSS for Dark Mode Styling
-st.markdown("""
-    <style>
-    .main {
-        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-        color: white;
-    }
-    .login-container {
-        max-width: 500px;
-        margin: 5rem auto;
-        padding: 3rem 2rem;
-        background-color: #1e1e1e;
-        border-radius: 12px;
-        box-shadow: 0 0 15px rgba(0,0,0,0.5);
-    }
-    .login-title {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #FFD93D;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .stTextInput > div > input {
-        background-color: #2c2c2c;
-        color: #fff;
-        border-radius: 0.5rem;
-        padding: 0.75rem;
-        border: 1px solid #444;
-    }
-    .stTextInput > label {
-        color: #ccc;
-    }
-    .stButton button {
-        background-color: #FFD93D;
-        color: #000;
-        border: none;
-        border-radius: 0.5rem;
-        padding: 0.75rem 1.5rem;
-        font-weight: 600;
-    }
-    .stButton button:hover {
-        background-color: #ffc400;
-        color: #000;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 def login():
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    st.markdown('<div class="login-title">🔑 Admin Login</div>', unsafe_allow_html=True)
+    
+
+    col1, col2, col3 = st.columns([1, 2, 1])  # Create 3 columns with the center one being wider
+    with col2:
+        st.image("logo1.png", use_container_width =True)  # Adjust the path to your logo file
+
+
+
+    st.title("Ticketing System - Login")
 
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")

@@ -1,5 +1,6 @@
 import streamlit as st
 st.set_page_config(page_title="CRM Admin Portal", layout="wide")
+
 import pandas as pd
 import bcrypt
 from conn import Conn

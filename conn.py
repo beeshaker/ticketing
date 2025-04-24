@@ -229,6 +229,7 @@ class Conn:
                         template_parameters=[f"#{ticket_id}", changed_by_admin, reason]
                     )
                     break
+            print(f"📤 Sending reassignment ({new_admin_whatsapp})")
 
             # ✅ Notify the supervisor if the new admin is a caretaker
             caretaker_check = self.get_admin_role_and_property(new_admin_id)
@@ -257,10 +258,12 @@ class Conn:
                                 break
 
                         # Send template message to the supervisor
-                        self.send_template_notification(
+                        print(f"📤 Sending reassignment message to {supervisor_name} ({supervisor_whatsapp})")
+                        self.send_template_notification(                            
                             to=supervisor_whatsapp,
                             template_name="caretaker_assigned_alert",
                             template_parameters=[f"#{ticket_id}", caretaker_name]
+                            
                         )
 
         return True, "✅ Ticket reassigned successfully!"

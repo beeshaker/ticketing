@@ -7,7 +7,10 @@ from license import LicenseManager
 from user_registration import user_registration_page
 from io import BytesIO
 from streamlit_timeline import timeline
+from streamlit_option_menu import option_menu
 
+# Page Configuration
+st.set_page_config(page_title="CRM Admin Portal", layout="wide")
 
 db = Conn()
 # Session State for Authentication
@@ -16,8 +19,7 @@ if 'authenticated' not in st.session_state:
     st.session_state.admin_name = ""
     st.session_state.admin_role = ""
 
-# Page Configuration
-st.set_page_config(page_title="CRM Admin Portal", layout="wide")
+
 
 valid_license, license_message = LicenseManager.validate_license()
 if not valid_license:
@@ -52,16 +54,55 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ------------------ STREAMLIT UI SETUP ------------------ #
-menu_options = ["CRM Main Dashboard", "Logout"]
-if st.session_state.admin_role == "Admin":
-    menu_options.insert(1, "Admin User Creation")  # Show admin creation only if user manages "All"
-    menu_options.insert(2, "Register User")
-    menu_options.insert(2, "Create Property")
+menu_options = ["Dashboard", "Logout"]
+menu_icons = ["bar-chart", "box-arrow-right"]
 
-menu_option = st.sidebar.radio("Navigation", menu_options)
+# Conditionally add Admin-only options
+if st.session_state.admin_role == "Admin":
+    menu_options.insert(1, "Admin User Creation")
+    menu_icons.insert(1, "person-gear")
+
+    menu_options.insert(2, "Register User")
+    menu_icons.insert(2, "person-plus")
+
+    menu_options.insert(2, "Create Property")
+    menu_icons.insert(2, "building")
+    
+
+with st.sidebar:
+    selected = option_menu(
+        menu_title="Main Menu",  # Sidebar title
+        options=menu_options,
+        icons=menu_icons,
+        menu_icon="cast",
+        default_index=0,
+        orientation="vertical",
+        styles={
+            "container": {
+                "padding": "5px",
+                "background-color": "#1e1e1e",  # dark sidebar background
+            },
+            "icon": {
+                "color": "#91cfff",  # soft blue icons for dark background
+                "font-size": "20px"
+            },
+            "nav-link": {
+                "font-size": "16px",
+                "text-align": "left",
+                "margin": "5px 0",
+                "--hover-color": "#2a2a2a",  # subtle hover for dark mode
+                "color": "#dddddd"  # light text
+            },
+            "nav-link-selected": {
+                "background-color": "#0a84ff",  # bright blue selection
+                "color": "white",
+                "font-weight": "bold"
+            },
+        }
+    )
 
 # ------------------ LOGOUT FUNCTION ------------------ #
-if menu_option == "Logout":
+if selected ==  "Logout":
     st.session_state.authenticated = False
     st.session_state.admin_name = ""
     st.session_state.admin_id = ""
@@ -70,7 +111,7 @@ if menu_option == "Logout":
     st.rerun()
 
 # -------------------- CRM MAIN DASHBOARD -------------------- #
-if menu_option == "CRM Main Dashboard":
+if selected ==  "Dashboard":
     st.title("📊 Operations CRM Dashboard")
     
     
@@ -109,7 +150,12 @@ if menu_option == "CRM Main Dashboard":
                 filename = row.get("filename", "attachment")
 
                 if media_type == "image":
-                    st.image(BytesIO(media_blob), caption="Attached Image", use_container_width=True)
+                    try:
+                        
+                        st.image(BytesIO(media_blob), caption="Attached Image", use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"⚠️ Unable to display image. Error: {e}")
+
 
                 elif media_type == "video":
                     st.video(BytesIO(media_blob))
@@ -277,7 +323,7 @@ if menu_option == "CRM Main Dashboard":
         
         
 # ------------------  USER registration ------------------ #
-elif menu_option == "Register User":
+elif selected ==  "Register User":
     
     def is_registered_user(whatsapp_number):
         """Checks if the WhatsApp number is registered in the database."""
@@ -290,7 +336,7 @@ elif menu_option == "Register User":
     user_registration_page() 
         
 # -------------------- ADMIN USER CREATION -------------------- #
-if menu_option == "Admin User Creation":
+if selected ==  "Admin User Creation":
     st.title("👤 Admin User Creation")
     
     def create_admin_user(name, username, password, property_id, admin_type):
@@ -374,7 +420,7 @@ if menu_option == "Admin User Creation":
         
     
 # -------------------- ADMIN REASSIGNMENT HISTORY PAGE -------------------- #
-if menu_option == "Admin Reassignment History":
+if selected ==  "Admin Reassignment History":
     st.title("📜 Admin Reassignment History")
 
     reassign_log_df = db.fetch_admin_reassignment_log()
@@ -385,7 +431,7 @@ if menu_option == "Admin Reassignment History":
         st.warning("⚠️ No reassignments have been logged yet.")
 
 # -------------------- Property Creation PAGE -------------------- #
-if menu_option == "Create Property":
+if selected ==  "Create Property":
     st.title("🏘️ Create New Property")
 
 

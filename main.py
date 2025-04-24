@@ -8,6 +8,7 @@ from user_registration import user_registration_page
 from io import BytesIO
 from streamlit_timeline import timeline
 from streamlit_option_menu import option_menu
+from login import login
 
 # Page Configuration
 st.set_page_config(page_title="CRM Admin Portal", layout="wide")
@@ -27,26 +28,6 @@ if not valid_license:
     st.stop()
 
 # ------------------ LOGIN FUNCTIONALITY ------------------ #
-def login():
-    st.title("🔑 Admin Login")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    
-    if st.button("Login"):
-        engine = db.engine
-        with engine.connect() as conn:
-            query = text("SELECT name, id, password, admin_type FROM admin_users WHERE username = :username")
-            result = conn.execute(query, {"username": username}).fetchone()
-            
-            if result and bcrypt.checkpw(password.encode(), result[2].encode()):
-                st.session_state.authenticated = True
-                st.session_state.admin_name = result[0]
-                st.session_state.admin_id = result[1]
-                st.session_state.admin_role = result[3]  # Store admin property access
-                st.success(f"Welcome, {st.session_state.admin_name}!")
-                st.rerun()
-            else:
-                st.error("Invalid username or password.")
 
 # Force login if not authenticated
 if not st.session_state.authenticated:

@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy.sql import text
 from conn import Conn
-from whatsapp import send_whatsapp_message, opt_in_user
-
+import requests
+import os
 
 
 
@@ -33,11 +33,29 @@ def register_user(name, whatsapp_number, property_id, unit_number):
 
             # ✅ Automatically opt-in user
             print("trying to send opt-in")
-            opt_in_message = opt_in_user(whatsapp_number)
+            opt_in_message = send_whatsapp_opt_in(whatsapp_number)
 
             return True, f"User registered successfully! {opt_in_message}"
         except Exception as e:
             return False, f"Error registering user: {e}"
+        
+def send_whatsapp_opt_in(whatsapp_number):
+    """Sends a request to Heroku backend to trigger WhatsApp opt-in."""
+    url = st.secrets.URL + "/opt_in_user"  # Example: https://yourapp.herokuapp.com/opt_in_user
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-KEY": os.getenv("INTERNAL_API_KEY")
+    }
+    payload = {"whatsapp_number": whatsapp_number}
+
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code == 200:
+            return "Opt-in message sent via WhatsApp."
+        else:
+            return f"WhatsApp opt-in failed ({response.status_code})."
+    except Exception as e:
+        return f"Error sending WhatsApp opt-in: {e}"
 
         
         

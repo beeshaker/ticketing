@@ -10,7 +10,7 @@ from whatsapp import send_whatsapp_message, opt_in_user
 db= Conn()
 def register_user(name, whatsapp_number, property_id, unit_number):
     """Registers user and opts them into WhatsApp communication."""
-    engine = db.engine()
+    engine = db.engine
     with engine.connect() as conn:
         try:
             check_query = text("SELECT id FROM users WHERE whatsapp_number = :whatsapp_number")
@@ -59,14 +59,14 @@ def user_registration_page():
         properties = result.fetchall()
 
     # Convert to a list of options
-    property_options = {f"{name}": pid for pid, name in properties}
+    property_options = {name: pid for pid, name in properties}
 
     
 
     
     with st.form("register_user_form"):
         name = st.text_input("User Name", placeholder="Enter user full name")
-        whatsapp_number = st.text_input("WhatsApp Number", placeholder="e.g. +1234567890")
+        whatsapp_number = st.text_input("WhatsApp Number", placeholder="e.g. 2547123456")
         # Show dropdown
         property_name = st.selectbox("Select Property", list(property_options.keys()))
         

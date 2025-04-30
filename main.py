@@ -321,7 +321,7 @@ elif selected ==  "Register User":
 if selected ==  "Admin User Creation":
     st.title("👤 Admin User Creation")
     
-    def create_admin_user(name, username, password, property_id, admin_type):
+    def create_admin_user(name, username, password, whatsapp_number, property_id, admin_type):
         engine = db.engine
         with engine.connect() as conn:
             try:
@@ -334,13 +334,14 @@ if selected ==  "Admin User Creation":
                 hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
                 insert_query = text("""
-                    INSERT INTO admin_users (name, username, password, property_id, admin_type) 
-                    VALUES (:name, :username, :password, :property_id, :admin_type)
+                    INSERT INTO admin_users (name, username, password, whatsapp_number, property_id, admin_type) 
+                    VALUES (:name, :username, :password, :whatsapp_number, :property_id, :admin_type)
                 """)
                 conn.execute(insert_query, {
                     "name": name,
                     "username": username,
                     "password": hashed_password,
+                    "whatsapp_number": whatsapp_number,
                     "property_id": property_id if admin_type == "Caretaker" and property_id != "None" else None,
                     "admin_type": admin_type
                 })
@@ -349,32 +350,35 @@ if selected ==  "Admin User Creation":
                 return True, "Admin user created successfully!"
             except Exception as e:
                 return False, f"Error creating admin user: {e}"
+
+
             
-    properties = db.get_all_properties()
-    
+    property_list = db.get_all_properties()
+    property_options = {name: pid for name, pid in property_list}
+
     with st.form("admin_user_form"):
         name = st.text_input("Full Name", placeholder="Enter admin's full name")
         whatsapp_number = st.text_input("Whatsapp_number", placeholder="Eg 254724123456")
         username = st.text_input("Username", placeholder="Enter a unique username")
         password = st.text_input("Password", type="password", placeholder="Enter a strong password")
         admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"])
-        properties = db.get_all_properties()
-        property_selection = st.selectbox("Assign Property", ["None"] + properties)
         
+        selected_property_name = st.selectbox("Assign Property", ["None"] + list(property_options.keys()))
+        property_id = property_options[selected_property_name] if selected_property_name != "None" else None
+
         submit_button = st.form_submit_button("Create Admin User")
-    
+
     if submit_button:
-        if name and username and password and property:
-            success, message = create_admin_user(name, username, password, property_selection,admin_type)
+        if name and username and password and whatsapp_number:
+            success, message = create_admin_user(
+                name, username, password, whatsapp_number, property_id, admin_type
+            )
+            st.success(message) if success else st.error(message)
             if success:
-                st.success(message)
                 st.rerun()
-            else:
-                st.error(message)
         else:
             st.warning("Please fill in all fields.")
-    
-    st.subheader("Registered Admin Users")
+        st.subheader("Registered Admin Users")
     
     def fetch_admin_users():
         engine = db.engine

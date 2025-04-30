@@ -53,9 +53,10 @@ def fetch_users():
 
 def user_registration_page():
     st.title("📲 WhatsApp User Registration")
-    cursor = db.cursor()
-    cursor.execute("SELECT id, property_name FROM properties")
-    properties = cursor.fetchall()
+    engine = db.engine
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT id, property_name FROM properties"))
+        properties = result.fetchall()
 
     # Convert to a list of options
     property_options = {f"{name}": pid for pid, name in properties}

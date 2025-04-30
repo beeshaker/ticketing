@@ -316,13 +316,10 @@ class Conn:
         return df
     
     def get_all_properties(self):
-        """Fetches the history of admin reassignments."""
-        query = """
-        SELECT name, id from properties where 1
-        """
-
+        """Returns list of (name, id) tuples for all properties."""
+        query = "SELECT name, id FROM properties"
         df = pd.read_sql(query, self.engine)
-        return df["name"].tolist() 
+        return list(zip(df["name"], df["id"]))
 
 
     def fetch_ticket_media(self, ticket_id):

@@ -46,7 +46,7 @@ def register_user(name, whatsapp_number, property_id, unit_number):
 def fetch_users():
     engine = db.engine
     with engine.connect() as conn:
-        query = text("SELECT u.id, u.name, u.property_id, p.property_name AS property, u.unit_number FROM users u JOIN properties p ON u.property_id = p.id;")
+        query = text("SELECT u.id, u.name, u.property_id, p.name AS property, u.unit_number FROM users u JOIN properties p ON u.property_id = p.id;")
         result = conn.execute(query)
         users = result.fetchall()
     return users

@@ -380,14 +380,28 @@ class Conn:
                 return False, "❌ Property with this name already exists."
 
             try:
-                conn.execute(
+                # Insert new property
+                result = conn.execute(
                     text("INSERT INTO properties (name, supervisor_id) VALUES (:name, :supervisor_id)"),
                     {"name": property_name, "supervisor_id": supervisor_id}
                 )
+
+                # Get the newly inserted property ID
+                property_id = conn.execute(
+                    text("SELECT LAST_INSERT_ID()")
+                ).scalar()
+
+                # Update admin_users table with this property_id for the supervisor
+                conn.execute(
+                    text("UPDATE admin_users SET property_id = :property_id WHERE id = :supervisor_id"),
+                    {"property_id": property_id, "supervisor_id": supervisor_id}
+                )
+
                 conn.commit()
-                return True, "✅ Property created successfully!"
+                return True, "✅ Property created and supervisor assigned successfully!"
             except Exception as e:
                 return False, f"❌ Failed to create property: {e}"
+
             
             
     def get_available_property_managers(self):

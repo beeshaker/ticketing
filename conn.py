@@ -318,7 +318,7 @@ class Conn:
     def get_all_properties(self):
         """Fetches the history of admin reassignments."""
         query = """
-        SELECT name from properties where 1
+        SELECT name, id from properties where 1
         """
 
         df = pd.read_sql(query, self.engine)

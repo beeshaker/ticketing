@@ -8,7 +8,7 @@ from whatsapp import send_whatsapp_message, opt_in_user
 
 
 db= Conn()
-def register_user(name, whatsapp_number, property_name, unit_number):
+def register_user(name, whatsapp_number, property_id, unit_number):
     """Registers user and opts them into WhatsApp communication."""
     engine = db.engine()
     with engine.connect() as conn:
@@ -20,24 +20,25 @@ def register_user(name, whatsapp_number, property_name, unit_number):
                 return False, "User already registered."
 
             insert_query = text("""
-                INSERT INTO users (name, whatsapp_number, property, unit_number) 
-                VALUES (:name, :whatsapp_number, :property, :unit_number)
+                INSERT INTO users (name, whatsapp_number, property_id, unit_number) 
+                VALUES (:name, :whatsapp_number, :property_id, :unit_number)
             """)
             conn.execute(insert_query, {
                 "name": name,
                 "whatsapp_number": whatsapp_number,
-                "property": property_name,
+                "property_id": property_id,
                 "unit_number": unit_number
             })
             conn.commit()
 
             # ✅ Automatically opt-in user
-            print ("trying to sennd otp")
+            print("trying to send opt-in")
             opt_in_message = opt_in_user(whatsapp_number)
 
             return True, f"User registered successfully! {opt_in_message}"
         except Exception as e:
             return False, f"Error registering user: {e}"
+
         
         
 
@@ -45,24 +46,36 @@ def register_user(name, whatsapp_number, property_name, unit_number):
 def fetch_users():
     engine = db.engine
     with engine.connect() as conn:
-        query = text("SELECT id, name, whatsapp_number, property, unit_number FROM users")
+        query = text("SELECT u.id, u.name, u.property_id, p.property_name AS property, u.unit_number FROM users u JOIN properties p ON u.property_id = p.id;")
         result = conn.execute(query)
         users = result.fetchall()
     return users
 
 def user_registration_page():
     st.title("📲 WhatsApp User Registration")
+    cursor = db.cursor()
+    cursor.execute("SELECT id, property_name FROM properties")
+    properties = cursor.fetchall()
+
+    # Convert to a list of options
+    property_options = {f"{name}": pid for pid, name in properties}
+
+    
+
     
     with st.form("register_user_form"):
         name = st.text_input("User Name", placeholder="Enter user full name")
         whatsapp_number = st.text_input("WhatsApp Number", placeholder="e.g. +1234567890")
-        property_name = st.text_input("Property Name", placeholder="Enter property name")
+        # Show dropdown
+        property_name = st.selectbox("Select Property", list(property_options.keys()))
+        
         unit_number = st.text_input("Unit Number", placeholder="Enter unit number")
         submit_button = st.form_submit_button("Register User")
+        property_id = property_options[property_name]
 
     if submit_button:
         if name and whatsapp_number and property_name and unit_number:
-            success, message = register_user(name, whatsapp_number, property_name, unit_number)
+            success, message = register_user(name, whatsapp_number, property_id, unit_number)
             if success:
                 st.success(message)
                 st.rerun()

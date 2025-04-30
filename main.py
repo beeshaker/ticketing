@@ -333,6 +333,12 @@ if selected ==  "Admin User Creation":
 
                 hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
+                # Determine final property_id based on admin_type
+                if admin_type == "Caretaker" and property_id != "None":
+                    final_property_id = property_id
+                else:
+                    final_property_id = None
+
                 insert_query = text("""
                     INSERT INTO admin_users (name, username, password, whatsapp_number, property_id, admin_type) 
                     VALUES (:name, :username, :password, :whatsapp_number, :property_id, :admin_type)
@@ -342,7 +348,7 @@ if selected ==  "Admin User Creation":
                     "username": username,
                     "password": hashed_password,
                     "whatsapp_number": whatsapp_number,
-                    "property_id": property_id if admin_type == "Caretaker" and property_id != "None" else None,
+                    "property_id": final_property_id,
                     "admin_type": admin_type
                 })
                 conn.commit()
@@ -350,6 +356,7 @@ if selected ==  "Admin User Creation":
                 return True, "Admin user created successfully!"
             except Exception as e:
                 return False, f"Error creating admin user: {e}"
+
 
 
             
@@ -363,8 +370,10 @@ if selected ==  "Admin User Creation":
         password = st.text_input("Password", type="password", placeholder="Enter a strong password")
         admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"])
         
-        selected_property_name = st.selectbox("Assign Property", ["None"] + list(property_options.keys()))
-        property_id = property_options[selected_property_name] if selected_property_name != "None" else None
+        property_label_list = ["None"] + list(property_options.keys())
+        selected_label = st.selectbox("Assign Property", property_label_list)
+
+        property_id = property_options.get(selected_label) if selected_label != "None" else None
 
         submit_button = st.form_submit_button("Create Admin User")
 

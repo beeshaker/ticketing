@@ -11,6 +11,7 @@ from io import BytesIO
 from streamlit_timeline import timeline
 from streamlit_option_menu import option_menu
 from login import login
+from create_ticket import create_ticket
 
 
 
@@ -36,7 +37,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ------------------ STREAMLIT UI SETUP ------------------ #
-menu_options = ["Dashboard", "Logout"]
+menu_options = ["Dashboard", "create_ticket", "Logout"]
 menu_icons = ["bar-chart", "box-arrow-right"]
 
 # Conditionally add Admin-only options
@@ -413,6 +414,10 @@ if selected ==  "Admin User Creation":
     else:
         st.warning("No admin users registered yet.")
         
+#--------------------- Create Ticket --------------------- #
+if selected ==  "Create Ticket":
+    st.title("🛠️ Create Internal Ticket")
+    create_ticket(st.session_state.admin_id)    
     
 # -------------------- ADMIN REASSIGNMENT HISTORY PAGE -------------------- #
 if selected ==  "Admin Reassignment History":

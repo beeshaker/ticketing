@@ -412,6 +412,17 @@ class Conn:
             df = pd.read_sql(text(query), conn)
         return df.to_dict("records")
     
+    def get_all_properties(self):
+        with self.engine.connect() as conn:
+            return conn.execute(text("SELECT id, name FROM properties")).fetchall()
+
+    def get_units_by_property(self, property_id):
+        with self.engine.connect() as conn:
+            return conn.execute(text(
+                "SELECT unit_number FROM users WHERE property_id = :property_id"
+            ), {"property_id": property_id}).fetchall()
+
+    
     
 
 

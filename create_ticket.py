@@ -3,7 +3,7 @@ from conn import Conn
 
 db = Conn()
 
-def create_ticket_page(admin_id):
+def create_ticket(admin_id):
     st.title("🛠️ Create Internal Ticket")
 
     # 1. Fetch and display property options

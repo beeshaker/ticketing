@@ -37,7 +37,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ------------------ STREAMLIT UI SETUP ------------------ #
-menu_options = ["Dashboard", "Create ticket", "Logout"]
+menu_options = ["Dashboard", "Create Ticket", "Logout"]
 menu_icons = ["bar-chart", "file-earmark-plus", "box-arrow-right"]
 
 # Conditionally add Admin-only options

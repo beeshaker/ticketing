@@ -435,6 +435,29 @@ class Conn:
                 SELECT unit_number FROM users WHERE property_id = :property_id
             """), {"property_id": property_id})
             return [dict(row._mapping) for row in result]
+        
+        
+    
+    def insert_ticket_and_get_id(self, user_id, description, category, property, assigned_admin):
+        """Inserts a new ticket and returns the auto-incremented ticket ID."""
+        insert_query = text("""
+            INSERT INTO tickets 
+            (user_id, issue_description, status, created_at, category, property_id, assigned_admin)
+            VALUES (:user_id, :description, 'Open', NOW(), :category, :property, :assigned_admin)
+        """)
+        select_query = text("SELECT LAST_INSERT_ID() AS id")
+
+        with self.engine.connect() as conn:
+            conn.execute(insert_query, {
+                "user_id": user_id,
+                "description": description,
+                "category": category,
+                "property": property,
+                "assigned_admin": assigned_admin
+            })
+            result = conn.execute(select_query).fetchone()
+            conn.commit()
+            return result[0]
 
 
     

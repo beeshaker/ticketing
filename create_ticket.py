@@ -17,7 +17,7 @@ def create_ticket(admin_id):
     # 2. Get unit numbers based on selected property
 
     units = db.get_units_by_property(property_id) or []
-    unit_numbers = ["None"] + [u['unit_number'] for u in units]
+    unit_numbers = ["Internal"] + [u['unit_number'] for u in units]
     selected_unit = st.selectbox("Select Unit", unit_numbers)
 
 
@@ -31,14 +31,14 @@ def create_ticket(admin_id):
     selected_admin = st.selectbox("Assign To", admin_display)
     assigned_admin_id = int(selected_admin.split("ID:")[-1].strip(")"))
     # 3. Determine user_id based on unit selection
-    if selected_unit == "None":
-        user_id = admin_id
+    if selected_unit == "Internal":
+        user_id = 15  # Internal admin placeholder user ID
     else:
         user_id = db.get_user_id_by_unit_and_property(selected_unit, property_id)
         if not user_id:
-            user_id = admin_id
-    if not user_id:
-        st.error("No user found for this unit and property.")
+            st.error("⚠️ No user found for the selected unit and property.")
+            st.stop()
+
                
 
     if st.button("Submit Ticket"):

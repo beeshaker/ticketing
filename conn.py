@@ -458,6 +458,19 @@ class Conn:
             result = conn.execute(select_query).fetchone()
             conn.commit()
             return result[0]
+        
+        
+    def get_user_id_by_unit_and_property(self, unit_number, property_id):
+        with self.engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT id FROM users 
+                WHERE unit_number = :unit_number AND property_id = :property_id
+            """), {
+                "unit_number": unit_number,
+                "property_id": property_id
+            }).fetchone()
+            return result[0] if result else None
+
 
 
     

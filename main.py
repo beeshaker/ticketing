@@ -43,6 +43,9 @@ if not st.session_state.authenticated:
 menu_options = ["Dashboard", "Create Ticket", "Logout"]
 menu_icons = ["bar-chart", "file-earmark-plus", "box-arrow-right"]
 
+st.sidebar.write("Current role:", st.session_state.get("admin_role"))
+
+
 # Conditionally add Admin-only options
 if st.session_state.admin_role == "Admin":
     menu_options.insert(1, "Admin User Creation")
@@ -123,7 +126,7 @@ if selected ==  "Dashboard":
     
 
     # Fetch tickets
-    if st.session_state.admin_role == "Admin":
+    if st.session_state.admin_role == "Admin" or "Super Admin":
         all_tickets_df = db.fetch_tickets("All")
         tickets_df = all_tickets_df
     else:

@@ -470,10 +470,111 @@ class Conn:
                 "property_id": property_id
             }).fetchone()
             return result[0] if result else None
-
-
-
+        
     
+    def get_all_users(self):
+        query = "SELECT * FROM users"
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn)
+        return df.to_dict("records")
+
+    def update_user(self, user_id, name, whatsapp_number, property_id, unit_number, temp_category):
+        query = text("""
+            UPDATE users
+            SET name = :name,
+                whatsapp_number = :whatsapp_number,
+                property_id = :property_id,
+                unit_number = :unit_number,
+                temp_category = :temp_category
+            WHERE id = :user_id
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(query, {
+                "name": name,
+                "whatsapp_number": whatsapp_number,
+                "property_id": property_id,
+                "unit_number": unit_number,
+                "temp_category": temp_category,
+                "user_id": user_id
+            })
+
+    def delete_user(self, user_id):
+        query = text("DELETE FROM users WHERE id = :user_id")
+        with self.engine.begin() as conn:
+            conn.execute(query, {"user_id": user_id})
+
+    def get_all_admin_users(self):
+        query = "SELECT * FROM admin_users"
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn)
+        return df.to_dict("records")
+
+    def update_admin_user(self, admin_id, name, username, whatsapp_number, admin_type, property_id):
+        query = text("""
+            UPDATE admin_users
+            SET name = :name,
+                username = :username,
+                whatsapp_number = :whatsapp_number,
+                admin_type = :admin_type,
+                property_id = :property_id
+            WHERE id = :admin_id
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(query, {
+                "name": name,
+                "username": username,
+                "whatsapp_number": whatsapp_number,
+                "admin_type": admin_type,
+                "property_id": property_id,
+                "admin_id": admin_id
+            })
+
+    def delete_admin_user(self, admin_id):
+        query = text("DELETE FROM admin_users WHERE id = :admin_id")
+        with self.engine.begin() as conn:
+            conn.execute(query, {"admin_id": admin_id})
+
+    def get_all_properties(self):
+        query = "SELECT * FROM properties"
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn)
+        return df.to_dict("records")
+
+    def get_available_property_managers(self):
+        query = """
+        SELECT id, name
+        FROM admin_users
+        WHERE admin_type = 'Property Manager'
+        """
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn)
+        return df.to_dict("records")
+
+    def update_property(self, property_id, name, supervisor_id):
+        # Check if supervisor is a valid Property Manager
+        check_query = text("""
+            SELECT id FROM admin_users
+            WHERE id = :id AND admin_type = 'Property Manager'
+        """)
+        update_query = text("""
+            UPDATE properties
+            SET name = :name, supervisor_id = :supervisor_id
+            WHERE id = :property_id
+        """)
+        with self.engine.begin() as conn:
+            valid = conn.execute(check_query, {"id": supervisor_id}).fetchone()
+            if not valid:
+                raise ValueError("Supervisor must be a valid Property Manager.")
+            conn.execute(update_query, {
+                "name": name,
+                "supervisor_id": supervisor_id,
+                "property_id": property_id
+            })
+
+    def delete_property(self, property_id):
+        query = text("DELETE FROM properties WHERE id = :property_id")
+        with self.engine.begin() as conn:
+            conn.execute(query, {"property_id": property_id})
     
 
 

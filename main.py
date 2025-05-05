@@ -12,6 +12,9 @@ from streamlit_timeline import timeline
 from streamlit_option_menu import option_menu
 from login import login
 from create_ticket import create_ticket
+from edit_admins import edit_admins
+from edit_properties import edit_properties
+from edit_users import edit_user
 
 
 
@@ -48,8 +51,28 @@ if st.session_state.admin_role == "Admin":
     menu_options.insert(2, "Register User")
     menu_icons.insert(2, "person-plus")
 
-    menu_options.insert(2, "Create Property")
-    menu_icons.insert(2, "building")
+    menu_options.insert(3, "Create Property")
+    menu_icons.insert(3, "building")
+
+elif st.session_state.admin_role == "Super Admin":
+    menu_options.insert(1, "Admin User Creation")
+    menu_icons.insert(1, "person-plus")  # ✅ creating admin
+
+    menu_options.insert(2, "Edit/Delete Admin User")
+    menu_icons.insert(2, "person-x")     # 🛠️ deleting/editing admin
+
+    menu_options.insert(3, "Register User")
+    menu_icons.insert(3, "person-fill-add")  # ✅ creating user
+
+    menu_options.insert(4, "Edit/Delete User")
+    menu_icons.insert(4, "person-fill-x")    # 🛠️ editing/deleting user
+
+    menu_options.insert(5, "Create Property")
+    menu_icons.insert(5, "building-add")     # ✅ creating property
+
+    menu_options.insert(6, "Edit/Delete Property")
+    menu_icons.insert(6, "building-gear")    # 🛠️ editing/deleting property
+
     
 
 with st.sidebar:
@@ -369,7 +392,11 @@ if selected ==  "Admin User Creation":
         whatsapp_number = st.text_input("Whatsapp_number", placeholder="Eg 254724123456")
         username = st.text_input("Username", placeholder="Enter a unique username")
         password = st.text_input("Password", type="password", placeholder="Enter a strong password")
-        admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"])
+        if st.session_state.admin_role == "Super Admin":
+            admin_type = st.selectbox("Admin Type", ["Super Admin", "Admin", "Property Manager", "Caretaker"])
+        else:
+            admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"])
+            
         
         property_label_list = ["None"] + list(property_options.keys())
         selected_label = st.selectbox("Assign Property", property_label_list)
@@ -452,3 +479,19 @@ if selected ==  "Create Property":
             st.rerun()
         else:
             st.error(msg)
+            
+            
+# ------------------  USER Edit ------------------ #
+elif selected ==  "Edit/Delete User":    
+    edit_user()
+    
+            
+# ------------------  Property Edit ------------------ #
+    
+elif selected ==  "Edit/Delete Property":
+    edit_properties()
+    
+    
+# ------------------  Admin Edit ------------------ #
+elif selected ==  "Edit/Delete Admin":
+    edit_admins()

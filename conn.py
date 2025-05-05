@@ -427,6 +427,14 @@ class Conn:
         with self.engine.connect() as conn:
             result = conn.execute(text("SELECT id, name FROM properties"))
             return [dict(row._mapping) for row in result]
+        
+        
+    def get_units_by_property(self, property_id):
+        with self.engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT unit_number FROM users WHERE property_id = :property_id
+            """), {"property_id": property_id})
+            return [dict(row._mapping) for row in result]
 
 
     

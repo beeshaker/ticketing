@@ -26,6 +26,20 @@ def edit_admins():
     property_id = st.text_input("Property ID", admin['property_id'] if admin['property_id'] is not None else "")
 
     col1, col2 = st.columns(2)
+    
+    with st.expander("🔐 Reset Password"):
+        new_pass = st.text_input("New Password", type="password")
+        confirm_pass = st.text_input("Confirm Password", type="password")
+
+        if st.button("Reset Password"):
+            if new_pass != confirm_pass:
+                st.error("❌ Passwords do not match.")
+            elif len(new_pass) < 6:
+                st.error("❌ Password must be at least 6 characters.")
+            else:
+                db.reset_admin_password(admin['id'], new_pass)
+                st.success("✅ Password updated successfully.")
+
 
     with col1:
         if st.button("Update Admin"):

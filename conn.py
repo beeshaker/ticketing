@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy.sql import text
 import requests
-
+import bcrypt
 
 load_dotenv()
 
@@ -575,6 +575,15 @@ class Conn:
         query = text("DELETE FROM properties WHERE id = :property_id")
         with self.engine.begin() as conn:
             conn.execute(query, {"property_id": property_id})
+            
+    
+
+    def reset_admin_password(self, admin_id, plain_password):
+        hashed = bcrypt.hashpw(plain_password.encode(), bcrypt.gensalt()).decode()
+        query = text("UPDATE admin_users SET password = :password WHERE id = :admin_id")
+        with self.engine.begin() as conn:
+            conn.execute(query, {"password": hashed, "admin_id": admin_id})
+
     
 
 

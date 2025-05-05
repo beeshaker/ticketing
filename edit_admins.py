@@ -22,7 +22,11 @@ def edit_admins():
     name = st.text_input("Name", admin['name'])
     username = st.text_input("Username", admin['username'])
     whatsapp_number = st.text_input("WhatsApp Number", admin['whatsapp_number'])
-    admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"], index=["Admin", "Property Manager", "Caretaker"].index(admin['admin_type']))
+    admin_type = st.selectbox(
+    "Admin Type",
+    ["Admin", "Property Manager", "Caretaker", "Super Admin"],
+    index=["Admin", "Property Manager", "Caretaker", "Super Admin"].index(admin['admin_type'])
+)
     property_id = st.text_input("Property ID", admin['property_id'] if admin['property_id'] is not None else "")
 
     col1, col2 = st.columns(2)

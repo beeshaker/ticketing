@@ -421,6 +421,13 @@ class Conn:
             return conn.execute(text(
                 "SELECT unit_number FROM users WHERE property_id = :property_id"
             ), {"property_id": property_id}).fetchall()
+            
+    
+    def get_all_ticket_properties(self):
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT id, name FROM properties"))
+            return [dict(row._mapping) for row in result]
+
 
     
     

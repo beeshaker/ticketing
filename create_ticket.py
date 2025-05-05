@@ -7,7 +7,7 @@ def create_ticket(admin_id):
     st.title("🛠️ Create Internal Ticket")
 
     # 1. Fetch and display property options
-    properties = db.get_all_properties()
+    properties = db.get_all_ticket_properties()
     property_names = [f"{p['name']} (ID: {p['id']})" for p in properties]
     selected_property_name = st.selectbox("Select Property", property_names)
 

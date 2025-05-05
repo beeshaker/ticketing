@@ -416,7 +416,6 @@ if selected ==  "Admin User Creation":
         
 #--------------------- Create Ticket --------------------- #
 if selected ==  "Create Ticket":
-    st.title("🛠️ Create Internal Ticket")
     create_ticket(st.session_state.admin_id)    
     
 # -------------------- ADMIN REASSIGNMENT HISTORY PAGE -------------------- #

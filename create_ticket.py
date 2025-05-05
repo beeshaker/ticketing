@@ -15,9 +15,11 @@ def create_ticket(admin_id):
     property_id = selected_property['id'] if selected_property else None
 
     # 2. Get unit numbers based on selected property
-    units = db.get_units_by_property(property_id)
-    unit_numbers = ["None"] + [u['unit_number'] for u in units]  # Add "None" option
-    selected_unit = st.selectbox("Select Unit", unit_numbers) if unit_numbers else None
+
+    units = db.get_units_by_property(property_id) or []
+    unit_numbers = ["None"] + [u['unit_number'] for u in units]
+    selected_unit = st.selectbox("Select Unit", unit_numbers)
+
 
     # 3. Ticket info fields
     issue_description = st.text_area("Issue Description")

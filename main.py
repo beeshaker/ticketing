@@ -61,7 +61,7 @@ elif st.session_state.admin_role == "Super Admin":
     menu_options.insert(1, "Admin User Creation")
     menu_icons.insert(1, "person-plus")  # ✅ creating admin
 
-    menu_options.insert(2, "Edit/Delete Admin User")
+    menu_options.insert(2, "Edit/Delete Admin")
     menu_icons.insert(2, "person-x")     # 🛠️ deleting/editing admin
 
     menu_options.insert(3, "Register User")

@@ -315,11 +315,7 @@ class Conn:
         df = pd.read_sql(query, self.engine)
         return df
     
-    def get_all_properties(self):
-        """Returns list of (name, id) tuples for all properties."""
-        query = "SELECT name, id FROM properties"
-        df = pd.read_sql(query, self.engine)
-        return list(zip(df["name"], df["id"]))
+   
 
 
     def fetch_ticket_media(self, ticket_id):
@@ -412,9 +408,7 @@ class Conn:
             df = pd.read_sql(text(query), conn)
         return df.to_dict("records")
     
-    def get_all_properties(self):
-        with self.engine.connect() as conn:
-            return conn.execute(text("SELECT id, name FROM properties")).fetchall()
+
 
     def get_units_by_property(self, property_id):
         with self.engine.connect() as conn:
@@ -534,11 +528,6 @@ class Conn:
         with self.engine.begin() as conn:
             conn.execute(query, {"admin_id": admin_id})
 
-    def get_all_properties(self):
-        query = "SELECT * FROM properties"
-        with self.engine.connect() as conn:
-            df = pd.read_sql(text(query), conn)
-        return df.to_dict("records")
 
     def get_available_property_managers(self):
         query = """
@@ -585,5 +574,10 @@ class Conn:
             conn.execute(query, {"password": hashed, "admin_id": admin_id})
 
     
+    def get_all_properties(self):
+        """Returns a list of properties with id and name."""
+        query = "SELECT id, name FROM properties"
+        result = self.query_database(query)
+        return result if result else []
 
 

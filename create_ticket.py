@@ -45,12 +45,7 @@ def create_ticket(admin_id):
         if property_id and selected_unit and issue_description and assigned_admin_id:
             
             
-            st.write("Creating ticket with:", {
-                "user_id": user_id,
-                "property_id": property_id,
-                "unit_number": selected_unit,
-                "admin_id": assigned_admin_id
-            })
+        
 
             ticket_id = db.insert_ticket_and_get_id(
                 user_id=user_id,

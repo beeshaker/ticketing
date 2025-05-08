@@ -389,7 +389,7 @@ if selected ==  "Admin User Creation":
 
             
     property_list = db.get_all_properties()
-    property_options = {name: pid for name, pid in property_list}
+    property_options = {f"{p['name']} (ID {p['id']})": p['id'] for p in property_list}
 
     with st.form("admin_user_form"):
         name = st.text_input("Full Name", placeholder="Enter admin's full name")

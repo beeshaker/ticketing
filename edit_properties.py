@@ -14,7 +14,7 @@ def edit_properties():
 
     # Fetch all properties
     properties = db.get_all_properties()
-    prop_options = {f"{p['name']} (ID {p['id']})": p for p in properties}
+    prop_options = {f"{p['name']} (ID {p['id']})": p['id'] for p in properties}
     selected_prop_label = st.selectbox("Select Property", list(prop_options.keys()))
     prop = prop_options[selected_prop_label]
 

@@ -472,14 +472,13 @@ class Conn:
             df = pd.read_sql(text(query), conn)
         return df.to_dict("records")
 
-    def update_user(self, user_id, name, whatsapp_number, property_id, unit_number, temp_category):
+    def update_user(self, user_id, name, whatsapp_number, property_id, unit_number):
         query = text("""
             UPDATE users
             SET name = :name,
                 whatsapp_number = :whatsapp_number,
                 property_id = :property_id,
                 unit_number = :unit_number,
-                temp_category = :temp_category
             WHERE id = :user_id
         """)
         with self.engine.begin() as conn:
@@ -488,7 +487,6 @@ class Conn:
                 "whatsapp_number": whatsapp_number,
                 "property_id": property_id,
                 "unit_number": unit_number,
-                "temp_category": temp_category,
                 "user_id": user_id
             })
 

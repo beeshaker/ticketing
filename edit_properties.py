@@ -21,7 +21,8 @@ def edit_properties():
 
     # Fetch available Property Managers (supervisors)
     managers = db.get_available_property_managers()
-    manager_options = {f"{m['name']} (ID {m['id']})": m['id'] for m in managers}
+    manager_options = {f"{m['name']} (ID {m['id']})": m for m in managers}
+
 
     # Pre-fill fields
     name = st.text_input("Property Name", prop['name'])
@@ -29,8 +30,14 @@ def edit_properties():
     if prop.get("supervisor_id"):
         selected_supervisor_label = next((k for k, v in manager_options.items() if v == prop['supervisor_id']), None)
 
-    supervisor_id = st.selectbox("Supervisor (Property Manager)", list(manager_options.keys()), index=list(manager_options.keys()).index(selected_supervisor_label) if selected_supervisor_label else 0)
-    supervisor_id_val = manager_options[supervisor_id]
+    selected_label = st.selectbox(
+        "Supervisor (Property Manager)",
+        list(manager_options.keys()),
+        index=list(manager_options.keys()).index(selected_supervisor_label) if selected_supervisor_label else 0
+    )
+
+    # 4. Get selected supervisor_id
+    supervisor_id_val = manager_options[selected_label]['id']
 
     col1, col2 = st.columns(2)
 

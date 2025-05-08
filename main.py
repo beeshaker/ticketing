@@ -149,42 +149,43 @@ if selected ==  "Dashboard":
         st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")  # New: Show assigned admin
         
         # -------------------- SHOW ATTACHED MEDIA -------------------- #
-        st.markdown("### 📎 Attached Files")
-        media_df = db.fetch_ticket_media(ticket_id)  # Should return media_type, media_blob, and optionally filename
+        #st.markdown("### 📎 Attached Files")
+        with st.expander("📎 Attached Files", expanded=False):
+            media_df = db.fetch_ticket_media(ticket_id)  # Should return media_type, media_blob, and optionally filename
 
-        if not media_df.empty:
-            for _, row in media_df.iterrows():
-                media_type = row["media_type"]
-                media_blob = row["media_blob"]
-                filename = row.get("filename", "attachment")
+            if not media_df.empty:
+                for _, row in media_df.iterrows():
+                    media_type = row["media_type"]
+                    media_blob = row["media_blob"]
+                    filename = row.get("filename", "attachment")
 
-                if media_type == "image":
-                    try:
-                        
-                        st.image(BytesIO(media_blob), caption="Attached Image", use_container_width=True)
-                    except Exception as e:
-                        st.warning(f"⚠️ Unable to display image. Error: {e}")
+                    if media_type == "image":
+                        try:
+                            
+                            st.image(BytesIO(media_blob), caption="Attached Image", use_container_width=True)
+                        except Exception as e:
+                            st.warning(f"⚠️ Unable to display image. Error: {e}")
 
 
-                elif media_type == "video":
-                    st.video(BytesIO(media_blob))
+                    elif media_type == "video":
+                        st.video(BytesIO(media_blob))
 
-                elif media_type == "document":
-                    st.download_button(
-                        label="📄 Download Document",
-                        data=media_blob,
-                        file_name=filename,
-                        mime="application/pdf"
-                    )
-                else:
-                    st.download_button(
-                        label=f"📎 Download {media_type.capitalize()}",
-                        data=media_blob,
-                        file_name=filename,
-                        mime="application/octet-stream"
-                    )
-        else:
-            st.info("No media files attached to this ticket.")
+                    elif media_type == "document":
+                        st.download_button(
+                            label="📄 Download Document",
+                            data=media_blob,
+                            file_name=filename,
+                            mime="application/pdf"
+                        )
+                    else:
+                        st.download_button(
+                            label=f"📎 Download {media_type.capitalize()}",
+                            data=media_blob,
+                            file_name=filename,
+                            mime="application/octet-stream"
+                        )
+            else:
+                st.info("No media files attached to this ticket.")
 
         # -------------------- STATUS UPDATE -------------------- #
         

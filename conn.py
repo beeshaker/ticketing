@@ -478,7 +478,7 @@ class Conn:
             SET name = :name,
                 whatsapp_number = :whatsapp_number,
                 property_id = :property_id,
-                unit_number = :unit_number,
+                unit_number = :unit_number
             WHERE id = :user_id
         """)
         with self.engine.begin() as conn:

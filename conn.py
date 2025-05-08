@@ -575,10 +575,10 @@ class Conn:
 
     
     def get_all_properties(self):
-        """Returns a list of properties with id and name."""
+        """Returns a list of properties as dicts with id and name."""
         query = "SELECT id, name FROM properties"
         with self.engine.begin() as conn:
-            result = conn.execute(text(query)).fetchall()        
+            result = conn.execute(text(query)).mappings().all()
         return result if result else []
     
     

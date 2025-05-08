@@ -577,7 +577,10 @@ class Conn:
     def get_all_properties(self):
         """Returns a list of properties with id and name."""
         query = "SELECT id, name FROM properties"
-        result = self.query_database(query)
+        with self.engine.begin() as conn:
+            result = conn.execute(text(query)).fetchall()        
         return result if result else []
+    
+    
 
 

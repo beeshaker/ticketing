@@ -502,6 +502,8 @@ class Conn:
         return df.to_dict("records")
 
     def update_admin_user(self, admin_id, name, username, whatsapp_number, admin_type, property_id):
+        if str(property_id).lower() == 'nan' or property_id in ('', None):
+            property_id = None
         query = text("""
             UPDATE admin_users
             SET name = :name,

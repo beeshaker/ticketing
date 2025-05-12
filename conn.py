@@ -610,6 +610,32 @@ class Conn:
             """), {"supervisor_id": supervisor_id}).mappings().fetchone()
 
             return result if result else None
+        
+        
+    def count_admin_users_by_property(self, property_id):
+        with self.engine.connect() as conn:
+            return conn.execute(text("SELECT COUNT(*) FROM admin_users WHERE property_id = :pid"), {"pid": property_id}).scalar()
+
+    def count_tickets_by_property(self, property_id):
+        with self.engine.connect() as conn:
+            return conn.execute(text("SELECT COUNT(*) FROM tickets WHERE property_id = :pid"), {"pid": property_id}).scalar()
+
+    def reassign_admin_users(self, old_property_id, new_property_id):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE admin_users
+                SET property_id = :new_pid
+                WHERE property_id = :old_pid
+            """), {"old_pid": old_property_id, "new_pid": new_property_id})
+
+    def reassign_tickets(self, old_property_id, new_property_id):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE tickets
+                SET property_id = :new_pid
+                WHERE property_id = :old_pid
+            """), {"old_pid": old_property_id, "new_pid": new_property_id})
+
 
 
 

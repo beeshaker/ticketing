@@ -49,44 +49,46 @@ def edit_properties():
 
     with col2:
         if st.button("Delete Property"):
+            st.session_state["delete_mode"] = prop['id']  # Track property being deleted
+
+        if st.session_state.get("delete_mode") == prop['id']:
             admin_count = db.count_admin_users_by_property(prop['id'])
             ticket_count = db.count_tickets_by_property(prop['id'])
 
-            if admin_count > 0 or ticket_count > 0:
-                with st.expander("⚙️ Advanced Delete Options"):
-                    st.warning(f"⚠️ This property has {admin_count} admin(s) and {ticket_count} ticket(s) linked.")
+            with st.expander("⚙️ Advanced Delete Options"):
+                st.warning(f"⚠️ This property has {admin_count} admin(s) and {ticket_count} ticket(s) linked.")
 
-                    option = st.radio("Choose delete strategy:", [
-                        "Reassign all linked data to another property",
-                        "Delete all linked data and then delete this property"
-                    ])
+                option = st.radio("Choose delete strategy:", [
+                    "Reassign all linked data to another property",
+                    "Delete all linked data and then delete this property"
+                ], key="delete_strategy")
 
-                    if option == "Reassign all linked data to another property":
-                        reassignment_options = [p for p in properties if p['id'] != prop['id']]
-                        if reassignment_options:
-                            reassign_map = {f"{p['name']} (ID {p['id']})": p['id'] for p in reassignment_options}
-                            selected_reassign = st.selectbox("Reassign to:", list(reassign_map.keys()))
-                            new_property_id = reassign_map[selected_reassign]
+                if option == "Reassign all linked data to another property":
+                    reassignment_options = [p for p in properties if p['id'] != prop['id']]
+                    if reassignment_options:
+                        reassign_map = {f"{p['name']} (ID {p['id']})": p['id'] for p in reassignment_options}
+                        selected_reassign = st.selectbox("Reassign to:", list(reassign_map.keys()), key="reassign_choice")
+                        new_property_id = reassign_map[selected_reassign]
 
-                            if st.button("Reassign & Delete"):
-                                db.reassign_admin_users(prop['id'], new_property_id)
-                                db.reassign_tickets(prop['id'], new_property_id)
-                                db.delete_property(prop['id'])
-                                st.success("✅ Property deleted after reassignment.")
-                                st.rerun()
-                        else:
-                            st.error("❌ No other property available for reassignment.")
-
-                    elif option == "Delete all linked data and then delete this property":
-                        confirm_delete_all = st.checkbox("⚠️ I understand that all related admins and tickets will be permanently deleted.")
-                        if confirm_delete_all and st.button("Delete All & Remove Property"):
-                            db.null_admins_by_property(prop['id'])
-                            db.delete_tickets_by_property(prop['id'])
+                        if st.button("Reassign & Delete", key="reassign_delete_btn"):
+                            db.reassign_admin_users(prop['id'], new_property_id)
+                            db.reassign_tickets(prop['id'], new_property_id)
                             db.delete_property(prop['id'])
-                            st.success("🗑️ Property and all related data deleted.")
+                            st.success("✅ Property deleted after reassignment.")
+                            st.session_state["delete_mode"] = None
                             st.rerun()
-            else:
-                if st.button("Confirm Delete"):
-                    db.delete_property(prop['id'])
-                    st.success("🗑️ Property deleted.")
-                    st.rerun()
+                    else:
+                        st.error("❌ No other property available for reassignment.")
+
+                elif option == "Delete all linked data and then delete this property":
+                    confirm_delete_all = st.checkbox(
+                        "⚠️ I understand that all related tickets will be deleted and admin users will be unlinked.",
+                        key="delete_confirm"
+                    )
+                    if confirm_delete_all and st.button("Delete All & Remove Property", key="delete_all_btn"):
+                        db.null_admins_by_property(prop['id'])
+                        db.delete_tickets_by_property(prop['id'])
+                        db.delete_property(prop['id'])
+                        st.success("🗑️ Property and all related data deleted.")
+                        st.session_state["delete_mode"] = None
+                        st.rerun()

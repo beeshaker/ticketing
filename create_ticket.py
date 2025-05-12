@@ -68,18 +68,31 @@ def create_ticket(admin_id):
                     except Exception as notify_err:
                         st.warning(f"⚠️ WhatsApp notification failed: {notify_err}")
 
-                # ✅ Supervisor notification if assigned to caretaker
                 if new_admin_info.get("admin_type") == "Caretaker":
+                    st.write("👷 Assigned admin is a Caretaker. Checking for supervisor...")
                     supervisor = db.get_property_supervisor_by_property(property_id)
-                    if supervisor and str(supervisor["id"]) != str(admin_id):
-                        try:
-                            db.send_template_notification(
-                                to=supervisor["whatsapp_number"],
-                                template_name="caretaker_task_alert",
-                                template_parameters=[f"#{ticket_id}", new_admin_name]
-                            )
-                        except Exception as sup_notify_err:
-                            st.warning(f"⚠️ Supervisor alert failed: {sup_notify_err}")
+                    st.write("Supervisor lookup result:", supervisor)
+
+                    if supervisor:
+                        st.write("Supervisor ID:", supervisor["id"])
+                        st.write("Supervisor WhatsApp:", supervisor["whatsapp_number"])
+                        st.write("Current admin ID (creator):", admin_id)
+
+                        if str(supervisor["id"]) != str(admin_id):
+                            try:
+                                st.write("📤 Sending WhatsApp to supervisor...")
+                                db.send_template_notification(
+                                    to=supervisor["whatsapp_number"],
+                                    template_name="caretaker_task_alert",
+                                    template_parameters=[f"#{ticket_id}", new_admin_name]
+                                )
+                                st.success("✅ Supervisor notified successfully.")
+                            except Exception as sup_notify_err:
+                                st.warning(f"❌ Supervisor alert failed: {sup_notify_err}")
+                        else:
+                            st.info("ℹ️ Supervisor is the one who created the ticket. No notification sent.")
+                    else:
+                        st.warning("⚠️ No supervisor found for this property.")
 
             st.success(f"✅ Ticket #{ticket_id} created and assigned to {new_admin_info['name']}")
         else:

@@ -178,7 +178,7 @@ class Conn:
     def reassign_ticket_admin(self, ticket_id, new_admin_id, old_admin_id, changed_by_admin, reason, is_super_admin=False):
         """Reassigns a ticket to a new admin, logs the change, and sends WhatsApp notifications if needed."""
         try:
-            with self.engine.connect() as conn:
+            with self.engine.begin() as conn:
                 print("🔁 Starting ticket reassignment process...")
 
                 # Step 1: Check reassignment count
@@ -581,6 +581,17 @@ class Conn:
             result = conn.execute(text(query)).mappings().all()
         return result if result else []
     
+    
+    
+    def get_property_manager_by_property(self, property_id):
+        query = text("""
+            SELECT id, name, whatsapp_number FROM admin_users 
+            WHERE property_id = :property_id AND admin_type = 'Property Manager'
+            LIMIT 1
+        """)
+        with self.engine.connect() as conn:
+            return conn.execute(query, {"property_id": property_id}).fetchone()
+
     
 
 

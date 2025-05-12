@@ -51,7 +51,7 @@ def create_ticket(admin_id):
 
             # ✅ Notify assigned admin via WhatsApp
             new_admin_info = next((admin for admin in admins if str(admin["id"]) == str(assigned_admin_id)), None)
-            st.write("New admin info:", new_admin_info)
+            
             if new_admin_info:
                 new_admin_name = new_admin_info["name"]
                 new_admin_whatsapp = new_admin_info.get("whatsapp_number")
@@ -69,18 +69,16 @@ def create_ticket(admin_id):
                         st.warning(f"⚠️ WhatsApp notification failed: {notify_err}")
 
                 if new_admin_info.get("admin_type") == "Caretaker":
-                    st.write("👷 Assigned admin is a Caretaker. Checking for supervisor...")
+                    
                     supervisor = db.get_property_supervisor_by_property(property_id)
-                    st.write("Supervisor lookup result:", supervisor)
+                    
 
                     if supervisor:
-                        st.write("Supervisor ID:", supervisor["id"])
-                        st.write("Supervisor WhatsApp:", supervisor["whatsapp_number"])
-                        st.write("Current admin ID (creator):", admin_id)
+                        
 
                         if str(supervisor["id"]) != str(admin_id):
                             try:
-                                st.write("📤 Sending WhatsApp to supervisor...")
+                                
                                 db.send_template_notification(
                                     to=supervisor["whatsapp_number"],
                                     template_name="caretaker_task_alert",

@@ -635,6 +635,20 @@ class Conn:
                 SET property_id = :new_pid
                 WHERE property_id = :old_pid
             """), {"old_pid": old_property_id, "new_pid": new_property_id})
+            
+            
+    def null_admins_by_property(self, property_id):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE admin_users
+                SET property_id = NULL
+                WHERE property_id = :pid
+            """), {"pid": property_id})
+            
+    def delete_tickets_by_property(self, property_id):
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM tickets WHERE property_id = :pid"), {"pid": property_id})
+
 
 
 

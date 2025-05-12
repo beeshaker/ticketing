@@ -76,7 +76,7 @@ class Conn:
     
     def fetch_all_admin_users(self):
         """Fetches all admin users."""
-        query = "SELECT * FROM admin_users"
+        query = "SELECT id, name, whatsapp_number, admin_type FROM admin_users"
         df = pd.read_sql(query, self.engine)
       
         return df.to_dict("records")

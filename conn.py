@@ -73,6 +73,14 @@ class Conn:
         df = pd.read_sql(query, self.engine)
       
         return df.to_dict("records")
+    
+    def fetch_all_admin_users(self):
+        """Fetches all admin users."""
+        query = "SELECT * FROM admin_users"
+        df = pd.read_sql(query, self.engine)
+      
+        return df.to_dict("records")
+
 
     # -------------------- UPDATE TICKET STATUS -------------------- #
     def send_whatsapp_notification(self, to, message):

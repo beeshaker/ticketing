@@ -24,7 +24,7 @@ def create_ticket(admin_id):
     category = st.selectbox("Category", ["Accounts", "Plumbing", "Electricity", "Other"])
 
     # 4. Admin selection (including self)
-    admins = db.fetch_admin_users()
+    admins = db.fetch_all_admin_users()
     admin_display = [f"{a['name']} (ID: {a['id']})" for a in admins]
     selected_admin = st.selectbox("Assign To", admin_display)
     assigned_admin_id = int(selected_admin.split("ID:")[-1].strip(")"))

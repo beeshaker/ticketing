@@ -51,16 +51,19 @@ def create_ticket(admin_id):
 
             # ✅ Notify assigned admin via WhatsApp
             new_admin_info = next((admin for admin in admins if str(admin["id"]) == str(assigned_admin_id)), None)
+            st.write("New admin info:", new_admin_info)
             if new_admin_info:
                 new_admin_name = new_admin_info["name"]
                 new_admin_whatsapp = new_admin_info.get("whatsapp_number")
+                
+                admin_name = st.session_state.admin_name 
 
                 if new_admin_whatsapp:
                     try:
                         db.send_template_notification(
                             to=new_admin_whatsapp,
                             template_name="ticket_reassignment",
-                            template_parameters=[f"#{ticket_id}", new_admin_name, "New ticket assignment"]
+                            template_parameters=[f"#{ticket_id}", admin_name, "New ticket assignment"]
                         )
                     except Exception as notify_err:
                         st.warning(f"⚠️ WhatsApp notification failed: {notify_err}")

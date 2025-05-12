@@ -604,12 +604,13 @@ class Conn:
 
             supervisor_id = result[0]
 
-            # Step 2: Get supervisor details from admin_users
+            # Step 2: Get supervisor details as dict
             result = conn.execute(text("""
                 SELECT id, name, whatsapp_number FROM admin_users WHERE id = :supervisor_id
-            """), {"supervisor_id": supervisor_id}).fetchone()
+            """), {"supervisor_id": supervisor_id}).mappings().fetchone()
 
-            return dict(result) if result else None
+            return result if result else None
+
 
 
     

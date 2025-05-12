@@ -591,14 +591,26 @@ class Conn:
     
     
     
-    def get_property_manager_by_property(self, property_id):
-        query = text("""
-            SELECT id, name, whatsapp_number FROM admin_users 
-            WHERE property_id = :property_id AND admin_type = 'Property Manager'
-            LIMIT 1
-        """)
+    def get_property_supervisor_by_property(self, property_id):
+        """Fetches the supervisor (admin) info for a given property."""
         with self.engine.connect() as conn:
-            return conn.execute(query, {"property_id": property_id}).fetchone()
+            # Step 1: Get supervisor_id from properties table
+            result = conn.execute(text("""
+                SELECT supervisor_id FROM properties WHERE id = :property_id
+            """), {"property_id": property_id}).fetchone()
+
+            if not result or not result[0]:
+                return None  # No supervisor assigned
+
+            supervisor_id = result[0]
+
+            # Step 2: Get supervisor details from admin_users
+            result = conn.execute(text("""
+                SELECT id, name, whatsapp_number FROM admin_users WHERE id = :supervisor_id
+            """), {"supervisor_id": supervisor_id}).fetchone()
+
+            return dict(result) if result else None
+
 
     
 

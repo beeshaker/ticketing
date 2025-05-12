@@ -70,7 +70,7 @@ def create_ticket(admin_id):
 
                 # ✅ Supervisor notification if assigned to caretaker
                 if new_admin_info.get("admin_type") == "Caretaker":
-                    supervisor = db.get_property_manager_by_property(property_id)
+                    supervisor = db.get_property_supervisor_by_property(property_id)
                     if supervisor and str(supervisor["id"]) != str(admin_id):
                         try:
                             db.send_template_notification(

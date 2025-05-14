@@ -6,18 +6,16 @@ from conn import Conn
 db = Conn()
 
 def login():
-    
-
-    col1, col2, col3 = st.columns([1, 2, 1])  # Create 3 columns with the center one being wider
+    # Centered logo using columns
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.image("logo1.png", use_container_width =True)  # Adjust the path to your logo file
+        st.image("logo1.png", use_container_width=True)
 
+    st.title("🎫 Ticketing System - Login")
 
-
-    st.title("Ticketing System - Login")
-
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    # Input fields
+    username = st.text_input("Username").strip()
+    password = st.text_input("Password", type="password").strip()
 
     if st.button("Login"):
         engine = db.engine
@@ -25,14 +23,25 @@ def login():
             query = text("SELECT name, id, password, admin_type FROM admin_users WHERE username = :username")
             result = conn.execute(query, {"username": username}).fetchone()
 
-            if result and bcrypt.checkpw(password.encode(), result[2].encode()):
-                st.session_state.authenticated = True
-                st.session_state.admin_name = result[0]
-                st.session_state.admin_id = result[1]
-                st.session_state.admin_role = result[3]
-                st.success(f"Welcome, {st.session_state.admin_name}!")
-                st.rerun()
+            if result:
+                name, admin_id, hashed_pw, admin_type = result
+
+                # Ensure stored hash is bytes
+                if isinstance(hashed_pw, str):
+                    hashed_pw = hashed_pw.strip().encode()
+
+                if bcrypt.checkpw(password.encode(), hashed_pw):
+                    # Set session values
+                    st.session_state.authenticated = True
+                    st.session_state.admin_name = name
+                    st.session_state.admin_id = admin_id
+                    st.session_state.admin_role = admin_type
+                    st.success(f"✅ Welcome, {name}!")
+                    st.experimental_rerun()
+                else:
+                    st.error("❌ Invalid password.")
             else:
-                st.error("Invalid username or password.")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+                st.error("❌ Username not found.")
+
+    # Optionally show debug state (remove this in prod)
+    # st.write("Session:", dict(st.session_state))

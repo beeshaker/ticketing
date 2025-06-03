@@ -41,7 +41,7 @@ def register_user(name, whatsapp_number, property_id, unit_number):
         
 def send_whatsapp_opt_in(whatsapp_number):
     """Sends a request to Heroku backend to trigger WhatsApp opt-in."""
-    url = st.secrets.URL + "/opt_in_user"  # Example: https://yourapp.herokuapp.com/opt_in_user
+    url = st.secrets.optinURL + "/opt_in_user"  # Example: https://yourapp.herokuapp.com/opt_in_user
     headers = {
         "Content-Type": "application/json",
         "X-API-KEY": os.getenv("INTERNAL_API_KEY")

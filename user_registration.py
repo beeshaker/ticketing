@@ -11,7 +11,7 @@ db= Conn()
 def register_user(name, whatsapp_number, property_id, unit_number):
     """Triggers WhatsApp opt-in only. User will be added after accepting terms via button."""
     try:
-        opt_in_success, opt_in_message = send_whatsapp_opt_in(whatsapp_number)
+        opt_in_success, opt_in_message = send_whatsapp_opt_in(whatsapp_number, name, property_id, unit_number)
 
         if not opt_in_success:
             return False, f"Opt-in failed: {opt_in_message}"

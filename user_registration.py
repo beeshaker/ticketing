@@ -9,64 +9,40 @@ import os
 
 db= Conn()
 def register_user(name, whatsapp_number, property_id, unit_number):
-    """Triggers WhatsApp opt-in and registers user only if not already in the database."""
+    """Triggers WhatsApp opt-in only. User will be added after accepting terms via button."""
     try:
-        # ✅ Step 1: Trigger WhatsApp opt-in
         opt_in_success, opt_in_message = send_whatsapp_opt_in(whatsapp_number)
 
         if not opt_in_success:
             return False, f"Opt-in failed: {opt_in_message}"
 
-        # ✅ Step 2: If backend already says user is registered, stop here
-        if "already registered" in opt_in_message.lower():
-            return False, opt_in_message
-
-        # ✅ Step 3: Proceed to insert new user
-        engine = db.engine
-        with engine.connect() as conn:
-            insert_query = text("""
-                INSERT INTO users (name, whatsapp_number, property_id, unit_number) 
-                VALUES (:name, :whatsapp_number, :property_id, :unit_number)
-            """)
-            conn.execute(insert_query, {
-                "name": name,
-                "whatsapp_number": whatsapp_number,
-                "property_id": property_id,
-                "unit_number": unit_number
-            })
-            conn.commit()
-
-        return True, f"User registered successfully! {opt_in_message}"
-
+        return True, f"Terms sent. User will be registered upon accepting them on WhatsApp."
+    
     except Exception as e:
-        return False, f"Error registering user: {e}"
-
+        return False, f"Error during opt-in process: {e}"
 
         
-def send_whatsapp_opt_in(whatsapp_number):
-    """Calls Flask backend to trigger WhatsApp opt-in. Waits for confirmation."""
+def send_whatsapp_opt_in(whatsapp_number, name, property_id, unit_number):
     url = st.secrets.optinURL + "/opt_in_user"
     headers = {
         "Content-Type": "application/json",
         "X-API-KEY": os.getenv("INTERNAL_API_KEY")
     }
-    payload = {"whatsapp_number": whatsapp_number}
+    payload = {
+        "whatsapp_number": whatsapp_number,
+        "name": name,
+        "property_id": property_id,
+        "unit_number": unit_number
+    }
 
     try:
         response = requests.post(url, headers=headers, json=payload)
         if response.status_code == 200:
-            resp_json = response.json()
-            if resp_json.get("status") == "terms_sent":
-                return True, "Opt-in terms message sent via WhatsApp."
-            elif resp_json.get("status") == "already_registered":
-                return False, "User already registered — skipping opt-in."
-            else:
-                return False, f"Unexpected response: {resp_json}"
+            return True, response.json().get("status", "unknown")
         else:
-            return False, f"Opt-in request failed: {response.status_code} - {response.text}"
-    
+            return False, f"Error: {response.status_code} - {response.text}"
     except Exception as e:
-        return False, f"Error sending WhatsApp opt-in: {e}"
+        return False, str(e)
 
 
 

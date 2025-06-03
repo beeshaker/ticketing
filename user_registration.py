@@ -55,6 +55,7 @@ def send_whatsapp_opt_in(whatsapp_number):
         else:
             return f"WhatsApp opt-in failed ({response.status_code})."
     except Exception as e:
+        print( f"Error sending WhatsApp opt-in: {e}")
         return f"Error sending WhatsApp opt-in: {e}"
 
         

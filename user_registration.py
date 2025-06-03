@@ -9,22 +9,21 @@ import os
 
 db= Conn()
 def register_user(name, whatsapp_number, property_id, unit_number):
-    """Sends opt-in first. If successful, registers user in the database."""
+    """Triggers WhatsApp opt-in and registers user only if not already in the database."""
     try:
-        # ✅ Step 1: Trigger opt-in
+        # ✅ Step 1: Trigger WhatsApp opt-in
         opt_in_success, opt_in_message = send_whatsapp_opt_in(whatsapp_number)
+
         if not opt_in_success:
             return False, f"Opt-in failed: {opt_in_message}"
 
-        # ✅ Step 2: Insert user into DB only after successful opt-in
+        # ✅ Step 2: If backend already says user is registered, stop here
+        if "already registered" in opt_in_message.lower():
+            return False, opt_in_message
+
+        # ✅ Step 3: Proceed to insert new user
         engine = db.engine
         with engine.connect() as conn:
-            check_query = text("SELECT id FROM users WHERE whatsapp_number = :whatsapp_number")
-            existing_user = conn.execute(check_query, {"whatsapp_number": whatsapp_number}).fetchone()
-            
-            if existing_user:
-                return False, "User already registered."
-
             insert_query = text("""
                 INSERT INTO users (name, whatsapp_number, property_id, unit_number) 
                 VALUES (:name, :whatsapp_number, :property_id, :unit_number)
@@ -38,9 +37,10 @@ def register_user(name, whatsapp_number, property_id, unit_number):
             conn.commit()
 
         return True, f"User registered successfully! {opt_in_message}"
-    
+
     except Exception as e:
         return False, f"Error registering user: {e}"
+
 
         
 def send_whatsapp_opt_in(whatsapp_number):

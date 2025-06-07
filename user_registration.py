@@ -50,8 +50,9 @@ def insert_temp_user(name, whatsapp_number, property_id, unit_number):
     engine = db.engine
     with engine.connect() as conn:
         conn.execute(text("""
-            INSERT IGNORE INTO users (name, whatsapp_number, property_id, unit_number, terms_accepted)
-            VALUES (:name, :whatsapp_number, :property_id, :unit_number, 0)
+            INSERT INTO temp_opt_in_users (name, whatsapp_number, property_id, unit_number)
+            VALUES (:name, :whatsapp_number, :property_id, :unit_number)
+            ON DUPLICATE KEY UPDATE name = VALUES(name), unit_number = VALUES(unit_number)
         """), {
             "name": name,
             "whatsapp_number": whatsapp_number,
@@ -60,13 +61,14 @@ def insert_temp_user(name, whatsapp_number, property_id, unit_number):
         })
         conn.commit()
 
+
         
 
 
 def fetch_users():
     engine = db.engine
     with engine.connect() as conn:
-        query = text("SELECT u.id, u.name, u.property_id, p.name AS property, u.unit_number FROM users u JOIN properties p ON u.property_id = p.id;")
+        query = text("SELECT u.id, u.name, u.whatsapp_number, p.name AS property, u.unit_number FROM users u JOIN properties p ON u.property_id = p.id;")
         result = conn.execute(query)
         users = result.fetchall()
     return users

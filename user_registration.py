@@ -8,18 +8,19 @@ import os
 
 
 db= Conn()
+    
 def register_user(name, whatsapp_number, property_id, unit_number):
-    """Triggers WhatsApp opt-in only. User will be added after accepting terms via button."""
     try:
+        insert_temp_user(name, whatsapp_number, property_id, unit_number)
         opt_in_success, opt_in_message = send_whatsapp_opt_in(whatsapp_number, name, property_id, unit_number)
 
         if not opt_in_success:
             return False, f"Opt-in failed: {opt_in_message}"
 
         return True, f"Terms sent. User will be registered upon accepting them on WhatsApp."
-    
     except Exception as e:
         return False, f"Error during opt-in process: {e}"
+
 
         
 def send_whatsapp_opt_in(whatsapp_number, name, property_id, unit_number):
@@ -45,8 +46,20 @@ def send_whatsapp_opt_in(whatsapp_number, name, property_id, unit_number):
         return False, str(e)
 
 
+def insert_temp_user(name, whatsapp_number, property_id, unit_number):
+    engine = db.engine
+    with engine.connect() as conn:
+        conn.execute(text("""
+            INSERT IGNORE INTO users (name, whatsapp_number, property_id, unit_number, terms_accepted)
+            VALUES (:name, :whatsapp_number, :property_id, :unit_number, 0)
+        """), {
+            "name": name,
+            "whatsapp_number": whatsapp_number,
+            "property_id": property_id,
+            "unit_number": unit_number
+        })
+        conn.commit()
 
-        
         
 
 

@@ -75,6 +75,9 @@ elif st.session_state.admin_role == "Super Admin":
 
     menu_options.insert(6, "Edit/Delete Property")
     menu_icons.insert(6, "building-gear")    # 🛠️ editing/deleting property
+    
+    menu_options.insert(7,  "Send Bulk Message")
+    menu_icons.insert(7,"envelope-paper-fill")
 
     
 
@@ -448,6 +451,42 @@ if selected ==  "Admin User Creation":
 #--------------------- Create Ticket --------------------- #
 if selected ==  "Create Ticket":
     create_ticket(st.session_state.admin_id)    
+    
+#--------------------- Send Bulk Message --------------------- #
+elif selected == "Send Bulk Message":
+    st.title("📨 Send 'Notice' Template Message to Property Users")
+
+    property_list = db.get_all_properties()
+    property_options = {f"{p['name']} (ID {p['id']})": p['id'] for p in property_list}
+
+    selected_property_label = st.selectbox("Select Property", property_options.keys())
+    selected_property_id = property_options[selected_property_label]
+    property_name = selected_property_label.split(" (ID")[0]
+
+    notice_text = st.text_area("Notice Text", placeholder="Write your notice content here")
+
+    if st.button("Send Notice Template"):
+        if notice_text:
+            users = db.get_users_by_property(selected_property_id)
+            if not users:
+                st.warning("⚠️ No users found for this property.")
+            else:
+                sent_count = 0
+                for user in users:
+                    params = [notice_text, property_name]
+                    response = db.send_template_notification(
+                        to=user["whatsapp_number"],
+                        template_name="notice",
+                        template_parameters=params
+                    )
+                    if "error" not in response:
+                        sent_count += 1
+                    else:
+                        st.warning(f"⚠️ Failed for {user['whatsapp_number']}: {response['error']}")
+                st.success(f"✅ Notice sent to {sent_count} users!")
+        else:
+            st.error("⚠️ Please enter the notice text.")
+
     
 # -------------------- ADMIN REASSIGNMENT HISTORY PAGE -------------------- #
 if selected ==  "Admin Reassignment History":

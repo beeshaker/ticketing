@@ -367,6 +367,37 @@ class Conn:
             return {"error": str(e)}
         
         
+
+
+    def save_bulk_audit(self, audit_entries):
+        with self.engine.connect() as conn:
+            insert_query = text("""
+                INSERT INTO bulk_message_audit (
+                    property_id, property_name, user_name, whatsapp_number, status, template_name, notice_text
+                )
+                VALUES (:property_id, :property_name, :user_name, :whatsapp_number, :status, :template_name, :notice_text)
+            """)
+            for entry in audit_entries:
+                conn.execute(insert_query, entry)
+            conn.commit()
+            
+            
+    def get_users_by_property(self, property_id):
+        with self.engine.connect() as conn:
+            query = text("""
+                SELECT 
+                    id,
+                    name,
+                    whatsapp_number
+                FROM users
+                WHERE property_id = :property_id
+            """)
+            result = conn.execute(query, {"property_id": property_id})
+            users = [dict(row) for row in result.fetchall()]
+        return users
+
+        
+        
         
     def create_property(self, property_name, supervisor_id):
         """Create a new property with a unique name and assign a supervisor."""

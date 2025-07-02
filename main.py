@@ -453,7 +453,7 @@ if selected ==  "Create Ticket":
     create_ticket(st.session_state.admin_id)    
     
 #--------------------- Send Bulk Message --------------------- #
-elif selected == "Send Bulk Message":
+if selected == "Send Bulk Message":
     st.title("📨 Send 'Notice' Template Message to Property Users")
 
     property_list = db.get_all_properties()
@@ -471,21 +471,59 @@ elif selected == "Send Bulk Message":
             if not users:
                 st.warning("⚠️ No users found for this property.")
             else:
-                sent_count = 0
-                for user in users:
+                sent_results = []
+                audit_entries = []
+                progress = st.progress(0)
+                total_users = len(users)
+
+                for idx, user in enumerate(users):
                     params = [notice_text, property_name]
                     response = db.send_template_notification(
                         to=user["whatsapp_number"],
                         template_name="notice",
                         template_parameters=params
                     )
+
                     if "error" not in response:
-                        sent_count += 1
+                        status = "✅ Success"
                     else:
-                        st.warning(f"⚠️ Failed for {user['whatsapp_number']}: {response['error']}")
-                st.success(f"✅ Notice sent to {sent_count} users!")
+                        status = f"❌ Failed - {response['error']}"
+
+                    sent_results.append({
+                        "Name": user.get("name", "N/A"),
+                        "WhatsApp": user["whatsapp_number"],
+                        "Status": status
+                    })
+
+                    audit_entries.append({
+                        "property_id": selected_property_id,
+                        "property_name": property_name,
+                        "user_name": user.get("name", "N/A"),
+                        "whatsapp_number": user["whatsapp_number"],
+                        "status": status,
+                        "template_name": "notice",
+                        "notice_text": notice_text
+                    })
+
+                    progress.progress((idx + 1) / total_users)
+
+                # Save audit trail to DB
+                db.save_bulk_audit(audit_entries)
+
+                # Show report
+                st.subheader("📋 Send Status Report")
+                st.dataframe(pd.DataFrame(sent_results))
+
+                csv_data = pd.DataFrame(sent_results).to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="⬇ Download Report as CSV",
+                    data=csv_data,
+                    file_name=f"notice_send_report_{property_name.replace(' ', '_')}.csv",
+                    mime='text/csv'
+                )
         else:
             st.error("⚠️ Please enter the notice text.")
+
 
     
 # -------------------- ADMIN REASSIGNMENT HISTORY PAGE -------------------- #

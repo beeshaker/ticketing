@@ -1,6 +1,7 @@
 import streamlit as st
 from conn import Conn
 
+
 def edit_properties():
     db = Conn()
 
@@ -11,7 +12,7 @@ def edit_properties():
 
     st.title("🏢 Edit or Delete Property")
 
-    # Fetch all properties
+    # ✅ Fetch all properties (NEW function returns supervisor_id + supervisor_name)
     properties = db.get_all_properties()
     if not properties:
         st.warning("No properties found.")
@@ -25,24 +26,28 @@ def edit_properties():
     # Fetch Property Managers (returns all managers per your note)
     managers = db.get_available_property_managers() or []
 
-    # ✅ Manager dropdown options WITH a None option
+    # ✅ Build dropdown options WITH a None option (and int-cast IDs for safe matching)
     manager_options = {"None (Unassigned)": None}
-    manager_options.update({f"{m['name']} (ID {m['id']})": m["id"] for m in managers})
+    manager_options.update({f"{m['name']} (ID {m['id']})": int(m["id"]) for m in managers})
 
     # Pre-fill fields
     name = st.text_input("Property Name", prop.get("name", ""))
 
-    # ✅ Show current supervisor clearly (even if NULL)
+    # ✅ Show current supervisor clearly (uses supervisor_name from SQL join)
     current_supervisor_id = prop.get("supervisor_id")
-    if current_supervisor_id is None:
-        current_supervisor_label = "None (Unassigned)"
-    else:
-        match = next((m for m in managers if m.get("id") == current_supervisor_id), None)
-        current_supervisor_label = (
-            f"{match['name']} (ID {match['id']})" if match else f"Assigned (ID {current_supervisor_id})"
-        )
+    current_supervisor_name = prop.get("supervisor_name")
 
-    st.info(f"👤 Current Supervisor: **{current_supervisor_label}**")
+    if current_supervisor_id is not None:
+        try:
+            current_supervisor_id = int(current_supervisor_id)
+        except Exception:
+            pass
+
+    if current_supervisor_id is None:
+        st.info("👤 Current Supervisor: **None (Unassigned)**")
+    else:
+        display_name = current_supervisor_name or "Unknown"
+        st.info(f"👤 Current Supervisor: **{display_name} (ID {current_supervisor_id})**")
 
     # ✅ Preselect the current supervisor (or None)
     labels = list(manager_options.keys())
@@ -52,7 +57,7 @@ def edit_properties():
     selected_supervisor_label = st.selectbox(
         "Supervisor (Property Manager)",
         labels,
-        index=default_index
+        index=default_index,
     )
     supervisor_id_val = manager_options[selected_supervisor_label]  # can be None
 

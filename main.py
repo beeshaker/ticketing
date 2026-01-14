@@ -329,8 +329,8 @@ if selected == "Dashboard":
                 st.rerun()
                 
         
-    else:
-        st.warning("⚠️ No tickets found.")
+            else:
+                st.warning("⚠️ No tickets found.")
     
         
         

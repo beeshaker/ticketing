@@ -123,22 +123,21 @@ if selected ==  "Logout":
     st.rerun()
 
 # -------------------- CRM MAIN DASHBOARD -------------------- #
-if selected ==  "Dashboard":
+if selected == "Dashboard":
     st.title("📊 Operations CRM Dashboard")
-    
-    
 
-    # Fetch tickets
-    if st.session_state.admin_role == "Admin" or "Super Admin":
-        all_tickets_df = db.fetch_tickets("All")
-        tickets_df = all_tickets_df
+    # Fetch tickets based on role
+    if st.session_state.admin_role in ("Admin", "Super Admin"):
+        tickets_df = db.fetch_tickets("All")
     else:
-        all_tickets_df = db.fetch_open_tickets( st.session_state.admin_id)
-    tickets_df = all_tickets_df  
+        tickets_df = db.fetch_open_tickets(st.session_state.admin_id)
 
-    if not tickets_df.empty:
+    if tickets_df is not None and not tickets_df.empty:
         st.subheader("🎟️ Open Tickets")
         st.dataframe(tickets_df)
+    else:
+        st.warning("⚠️ No tickets found.")
+
 
         ticket_id = st.selectbox("Select Ticket ID to update", tickets_df["id"].tolist())
         selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]

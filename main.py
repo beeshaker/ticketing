@@ -1,52 +1,56 @@
 import streamlit as st
 st.set_page_config(page_title="CRM Admin Portal", layout="wide")
 
+import os
 import pandas as pd
 import bcrypt
-from conn import Conn
-from sqlalchemy.sql import text
-from license import LicenseManager
-from user_registration import user_registration_page
 from io import BytesIO
+from sqlalchemy.sql import text
 from streamlit_timeline import timeline
 from streamlit_option_menu import option_menu
+
+from conn import Conn
+from license import LicenseManager
 from login import login
+from user_registration import user_registration_page
 from create_ticket import create_ticket
 from edit_admins import edit_admins
 from edit_properties import edit_properties
 from edit_users import edit_user
 
 
-
+# -----------------------------------------------------------------------------
+# Init
+# -----------------------------------------------------------------------------
 db = Conn()
+
 # Session State for Authentication
-if 'authenticated' not in st.session_state:
+if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.admin_name = ""
     st.session_state.admin_role = ""
+    st.session_state.admin_id = None
 
-
-
+# License check
 valid_license, license_message = LicenseManager.validate_license()
 if not valid_license:
     st.error(license_message)
     st.stop()
-
-# ------------------ LOGIN FUNCTIONALITY ------------------ #
 
 # Force login if not authenticated
 if not st.session_state.authenticated:
     login()
     st.stop()
 
-# ------------------ STREAMLIT UI SETUP ------------------ #
+# -----------------------------------------------------------------------------
+# Sidebar Menu
+# -----------------------------------------------------------------------------
+st.sidebar.write("Current role:", st.session_state.get("admin_role", ""))
+
 menu_options = ["Dashboard", "Create Ticket", "Logout"]
 menu_icons = ["bar-chart", "file-earmark-plus", "box-arrow-right"]
 
-st.sidebar.write("Current role:", st.session_state.get("admin_role"))
-
-
-# Conditionally add Admin-only options
+# Admin role menus
 if st.session_state.admin_role == "Admin":
     menu_options.insert(1, "Admin User Creation")
     menu_icons.insert(1, "person-gear")
@@ -59,71 +63,71 @@ if st.session_state.admin_role == "Admin":
 
 elif st.session_state.admin_role == "Super Admin":
     menu_options.insert(1, "Admin User Creation")
-    menu_icons.insert(1, "person-plus")  # ✅ creating admin
+    menu_icons.insert(1, "person-plus")
 
     menu_options.insert(2, "Edit/Delete Admin")
-    menu_icons.insert(2, "person-x")     # 🛠️ deleting/editing admin
+    menu_icons.insert(2, "person-x")
 
     menu_options.insert(3, "Register User")
-    menu_icons.insert(3, "person-fill-add")  # ✅ creating user
+    menu_icons.insert(3, "person-fill-add")
 
     menu_options.insert(4, "Edit/Delete User")
-    menu_icons.insert(4, "person-fill-x")    # 🛠️ editing/deleting user
+    menu_icons.insert(4, "person-fill-x")
 
     menu_options.insert(5, "Create Property")
-    menu_icons.insert(5, "building-add")     # ✅ creating property
+    menu_icons.insert(5, "building-add")
 
     menu_options.insert(6, "Edit/Delete Property")
-    menu_icons.insert(6, "building-gear")    # 🛠️ editing/deleting property
-    
-    menu_options.insert(7,  "Send Bulk Message")
-    menu_icons.insert(7,"envelope-paper-fill")
+    menu_icons.insert(6, "building-gear")
 
-    
+    menu_options.insert(7, "Send Bulk Message")
+    menu_icons.insert(7, "envelope-paper-fill")
+
+    # If you actually want this page, keep it in menu:
+    menu_options.insert(8, "Admin Reassignment History")
+    menu_icons.insert(8, "clock-history")
 
 with st.sidebar:
     selected = option_menu(
-        menu_title="Main Menu",  # Sidebar title
+        menu_title="Main Menu",
         options=menu_options,
         icons=menu_icons,
         menu_icon="cast",
         default_index=0,
         orientation="vertical",
         styles={
-            "container": {
-                "padding": "5px",
-                "background-color": "#1e1e1e",  # dark sidebar background
-            },
-            "icon": {
-                "color": "#91cfff",  # soft blue icons for dark background
-                "font-size": "20px"
-            },
+            "container": {"padding": "5px", "background-color": "#1e1e1e"},
+            "icon": {"color": "#91cfff", "font-size": "20px"},
             "nav-link": {
                 "font-size": "16px",
                 "text-align": "left",
                 "margin": "5px 0",
-                "--hover-color": "#2a2a2a",  # subtle hover for dark mode
-                "color": "#dddddd"  # light text
+                "--hover-color": "#2a2a2a",
+                "color": "#dddddd",
             },
             "nav-link-selected": {
-                "background-color": "#0a84ff",  # bright blue selection
+                "background-color": "#0a84ff",
                 "color": "white",
-                "font-weight": "bold"
+                "font-weight": "bold",
             },
-        }
+        },
     )
 
-# ------------------ LOGOUT FUNCTION ------------------ #
-if selected ==  "Logout":
+# -----------------------------------------------------------------------------
+# Logout
+# -----------------------------------------------------------------------------
+if selected == "Logout":
     st.session_state.authenticated = False
     st.session_state.admin_name = ""
-    st.session_state.admin_id = ""
+    st.session_state.admin_id = None
     st.session_state.admin_role = ""
     st.success("Logged out successfully.")
     st.rerun()
 
-# -------------------- CRM MAIN DASHBOARD -------------------- #
-if selected == "Dashboard":
+# -----------------------------------------------------------------------------
+# Dashboard
+# -----------------------------------------------------------------------------
+elif selected == "Dashboard":
     st.title("📊 Operations CRM Dashboard")
 
     # Fetch tickets based on role
@@ -132,104 +136,80 @@ if selected == "Dashboard":
     else:
         tickets_df = db.fetch_open_tickets(st.session_state.admin_id)
 
-    if tickets_df is not None and not tickets_df.empty:
-        st.subheader("🎟️ Open Tickets")
-        st.dataframe(tickets_df)
-    else:
+    if tickets_df is None or tickets_df.empty:
         st.warning("⚠️ No tickets found.")
+        st.stop()
 
+    st.subheader("🎟️ Open Tickets")
+    st.dataframe(tickets_df, use_container_width=True)
 
-        ticket_id = st.selectbox("Select Ticket ID to update", tickets_df["id"].tolist())
-        selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
+    ticket_id = st.selectbox("Select Ticket ID to view/manage", tickets_df["id"].tolist())
+    selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
 
-        # Display Ticket Details
-        st.write(f"**Issue:** {selected_ticket['issue_description']}")
-        st.write(f"**Category:** {selected_ticket['category']}")  # New: Show category
-        st.write(f"**Property:** {selected_ticket['property']}")
-        st.write(f"**Unit Number:** {selected_ticket['unit_number']}")
-        st.write(f"**Status:** {selected_ticket['status']}")
-        st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")  # New: Show assigned admin
-        
-        # -------------------- SHOW ATTACHED MEDIA -------------------- #
-        #st.markdown("### 📎 Attached Files")
-        with st.expander("📎 Attached Files", expanded=False):
-            media_df = db.fetch_ticket_media(ticket_id)  # Should return media_type, media_blob, and optionally filename
+    # Ticket details
+    st.markdown("### Ticket Details")
+    st.write(f"**Issue:** {selected_ticket['issue_description']}")
+    st.write(f"**Category:** {selected_ticket['category']}")
+    st.write(f"**Property:** {selected_ticket['property']}")
+    st.write(f"**Unit Number:** {selected_ticket['unit_number']}")
+    st.write(f"**Status:** {selected_ticket['status']}")
+    st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")
 
-            if not media_df.empty:
-                for _, row in media_df.iterrows():
-                    media_type = row["media_type"]
-                    media_blob = row["media_blob"]
-                    filename = row.get("filename", "attachment")
+    # -------------------- Attached Media -------------------- #
+    with st.expander("📎 Attached Files", expanded=False):
+        media_df = db.fetch_ticket_media(ticket_id)
+        if media_df is None or media_df.empty:
+            st.info("No media files attached to this ticket.")
+        else:
+            for _, row in media_df.iterrows():
+                media_type = row["media_type"]
+                media_blob = row["media_blob"]
+                filename = row.get("filename", "attachment")
 
-                    if media_type == "image":
-                        try:
-                            
-                            st.image(BytesIO(media_blob), caption="Attached Image", use_container_width=True)
-                        except Exception as e:
-                            st.warning(f"⚠️ Unable to display image. Error: {e}")
+                if media_type == "image":
+                    st.image(BytesIO(media_blob), caption=filename, use_container_width=True)
+                elif media_type == "video":
+                    st.video(BytesIO(media_blob))
+                elif media_type == "document":
+                    st.download_button(
+                        label=f"📄 Download {filename}",
+                        data=media_blob,
+                        file_name=filename,
+                        mime="application/pdf",
+                    )
+                else:
+                    st.download_button(
+                        label=f"📎 Download {filename}",
+                        data=media_blob,
+                        file_name=filename,
+                        mime="application/octet-stream",
+                    )
 
+    # -------------------- Ticket History -------------------- #
+    with st.expander("📜 Ticket History", expanded=False):
+        st.markdown(
+            """
+            <style>
+                .timeline { background-color: #f0f0f0 !important; }
+                .tl-text-content, .tl-headline, .tl-title { color: black !important; font-weight: bold !important; }
+                .tl-text-content p { color: black !important; font-size: 16px !important; }
+                .tl-timegroup .tl-time .tl-time-display,
+                .tl-event-title,
+                .tl-headline-date { color: #8B0000 !important; font-weight: 700 !important; }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
-                    elif media_type == "video":
-                        st.video(BytesIO(media_blob))
-
-                    elif media_type == "document":
-                        st.download_button(
-                            label="📄 Download Document",
-                            data=media_blob,
-                            file_name=filename,
-                            mime="application/pdf"
-                        )
-                    else:
-                        st.download_button(
-                            label=f"📎 Download {media_type.capitalize()}",
-                            data=media_blob,
-                            file_name=filename,
-                            mime="application/octet-stream"
-                        )
-            else:
-                st.info("No media files attached to this ticket.")
-
-        # -------------------- STATUS UPDATE -------------------- #
-        
-        
-        with st.expander("📜 Ticket History", expanded=False):
-            # Inject CSS for background and text color
-            st.markdown("""
-                <style>
-                    .timeline {
-                        background-color: #f0f0f0 !important;
-                    }
-
-                    .tl-text-content, .tl-headline, .tl-title {
-                        color: black !important;
-                        font-weight: bold !important;
-                    }
-
-                    .tl-text-content p {
-                        color: black !important;
-                        font-size: 16px !important;
-                    }
-
-                    /* Improve visibility for bottom timeline items (event preview texts) */
-                    .tl-timegroup .tl-time .tl-time-display,
-                    .tl-event-title,
-                    .tl-headline-date {
-                        color: #8B0000 !important;
-                        font-weight: 700 !important;
-                    }
-                </style>
-            """, unsafe_allow_html=True)
-
-            history_df = db.fetch_ticket_history(ticket_id)
-
-            if not history_df.empty:
-                events = []
-                for _, row in history_df.iterrows():
-                    dt = row["performed_at"]
-                    bg_color = "#E0E0E0"
-                    text_color = "#000000"
-
-                    events.append({
+        history_df = db.fetch_ticket_history(ticket_id)
+        if history_df is None or history_df.empty:
+            st.info("No ticket history available.")
+        else:
+            events = []
+            for _, row in history_df.iterrows():
+                dt = row["performed_at"]
+                events.append(
+                    {
                         "start_date": {
                             "year": dt.year,
                             "month": dt.month,
@@ -241,8 +221,8 @@ if selected == "Dashboard":
                             "headline": f"{row['action']} by {row['performed_by']}",
                             "text": f"""
                                 <div style='
-                                    background-color:{bg_color};
-                                    color:{text_color};
+                                    background-color:#E0E0E0;
+                                    color:#000000;
                                     padding:12px;
                                     border-radius:10px;
                                     font-size:15px;
@@ -250,328 +230,350 @@ if selected == "Dashboard":
                                 '>
                                     {row['details']}
                                 </div>
-                            """
-                        }
-                    })
+                            """,
+                        },
+                    }
+                )
 
-                timeline({
+            timeline(
+                {
                     "title": {
                         "text": {
                             "headline": f"🕒 Ticket #{ticket_id} History",
-                            "text": "Full record of updates and reassignments"
+                            "text": "Full record of updates and reassignments",
                         }
                     },
-                    "events": events
-                })
-            else:
-                st.info("No ticket history available.")
-            
-        new_status = st.selectbox("Update Status", ["Open", "In Progress", "Resolved"], 
-                                  index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]))
-        
-        if st.button("Update Status"):
-            db.update_ticket_status(ticket_id, new_status)
-            st.success(f"✅ Ticket #{ticket_id} status updated to {new_status}!")
+                    "events": events,
+                }
+            )
+
+    # -------------------- Status Update -------------------- #
+    st.markdown("### ✅ Update Status")
+    new_status = st.selectbox(
+        "Status",
+        ["Open", "In Progress", "Resolved"],
+        index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]),
+        key="status_select",
+    )
+    if st.button("Update Status", key="btn_update_status"):
+        db.update_ticket_status(ticket_id, new_status)
+        st.success(f"✅ Ticket #{ticket_id} status updated to {new_status}!")
+        st.rerun()
+
+    # -------------------- Add Update -------------------- #
+    st.markdown("### ✍️ Add Ticket Update")
+    update_text = st.text_area("Update text", key="update_text")
+    admin_name = st.session_state.admin_name
+    if st.button("Submit Update", key="btn_submit_update"):
+        if not update_text.strip():
+            st.error("⚠️ Please provide update text.")
+        else:
+            db.add_ticket_update(ticket_id, update_text.strip(), admin_name)
+            st.success("✅ Update added successfully!")
             st.rerun()
 
-        # -------------------- TICKET UPDATES -------------------- #
-        update_text = st.text_area("Add Update")
-        admin_name = st.session_state.admin_name  # Automatically assign logged-in admin name
+    # -------------------- Reassign Admin -------------------- #
+    if st.session_state.admin_role != "Caretaker":
+        st.markdown("### 🔄 Reassign Admin")
+        admin_users = db.fetch_admin_users()
+        admin_options = {admin["id"]: admin["name"] for admin in admin_users}
 
-        if st.button("Submit Update"):
-            if update_text:
-                db.add_ticket_update(ticket_id, update_text, admin_name)
-                st.success("✅ Update added successfully!")
-                st.rerun()
-            else:
-                st.error("⚠️ Please provide update text.")
+        # NOTE: selected_ticket["assigned_admin"] is a NAME (from SQL alias),
+        # but reassign_ticket_admin expects old_admin_id (ID). We’ll look it up.
+        current_assigned_name = selected_ticket["assigned_admin"]
+        current_assigned_id = None
+        for aid, aname in admin_options.items():
+            if aname == current_assigned_name:
+                current_assigned_id = aid
+                break
 
-        # -------------------- ADMIN REASSIGNMENT -------------------- #
-        if st.session_state.admin_role != "Caretaker":
-    
-            st.subheader("🔄 Reassign Admin")
+        # show only admins different from current assigned name
+        available_admins = {k: v for k, v in admin_options.items() if v != current_assigned_name}
 
-            # Fetch all admin users from the database
-            admin_users = db.fetch_admin_users()  # Function to get admin list
-            admin_options = {admin["id"]: admin["name"] for admin in admin_users}
-            
-            # Exclude the currently assigned admin
-            available_admins = {k: v for k, v in admin_options.items() if v != selected_ticket["assigned_admin"]}
-            
-            new_admin_id = st.selectbox("Select New Admin", list(available_admins.keys()), format_func=lambda x: available_admins[x])
+        if not available_admins:
+            st.info("No other admins available to reassign to.")
+        else:
+            new_admin_id = st.selectbox(
+                "Select New Admin",
+                list(available_admins.keys()),
+                format_func=lambda x: available_admins[x],
+                key="new_admin_select",
+            )
 
-            reassign_reason = st.text_area("Reason for Reassignment")
-            
-            
+            reassign_reason = st.text_area("Reason for Reassignment", key="reassign_reason")
 
-            if st.button("Reassign Ticket"):
-                print("clicked")
-                if new_admin_id and reassign_reason:
-                    db.reassign_ticket_admin(ticket_id, new_admin_id, selected_ticket["assigned_admin"], admin_name, reassign_reason)
-                    st.success(f"✅ Ticket #{ticket_id} reassigned to {available_admins[new_admin_id]}!")
-                    st.rerun()
+            if st.button("Reassign Ticket", key="btn_reassign"):
+                if not reassign_reason.strip():
+                    st.error("⚠️ Please provide a reason.")
+                elif current_assigned_id is None:
+                    st.error("⚠️ Could not resolve current assigned admin ID. Check your SQL/DB data.")
                 else:
-                    st.error("⚠️ Please select a new admin and provide a reason.")
+                    ok, msg = db.reassign_ticket_admin(
+                        ticket_id=ticket_id,
+                        new_admin_id=new_admin_id,
+                        old_admin_id=current_assigned_id,
+                        changed_by_admin=admin_name,
+                        reason=reassign_reason.strip(),
+                        is_super_admin=(st.session_state.admin_role == "Super Admin"),
+                    )
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
-            
-                
-            
-            # -------------------- DUE DATE SECTION -------------------- #
-            st.subheader("📅 Set Due Date")
+        # -------------------- Due Date -------------------- #
+        st.markdown("### 📅 Set Due Date")
+        current_due_date = selected_ticket.get("Due_Date")
 
-            current_due_date = selected_ticket.get("due_date")
+        default_due = None
+        if current_due_date:
+            try:
+                default_due = pd.to_datetime(current_due_date).date()
+            except Exception:
+                default_due = None
 
-            due_date = st.date_input("Select Due Date", value=pd.to_datetime(current_due_date) if current_due_date else None)
+        due_date = st.date_input(
+            "Select Due Date",
+            value=default_due if default_due else pd.Timestamp.today().date(),
+            key="due_date_input",
+        )
 
-            if st.button("Update Due Date"):
-                db.update_ticket_due_date(ticket_id, due_date)
-                st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
-                st.rerun()
-                
-        
-            else:
-                st.warning("⚠️ No tickets found.")
-    
-        
-        
-# ------------------  USER registration ------------------ #
-elif selected ==  "Register User":
-    
-    def is_registered_user(whatsapp_number):
-        """Checks if the WhatsApp number is registered in the database."""
-        engine = db.engine
-        with engine.connect() as conn:
-            query = text("SELECT id FROM users WHERE whatsapp_number = :whatsapp_number")
-            result = conn.execute(query, {"whatsapp_number": whatsapp_number}).fetchone()
-        return result is not None
-    
-    user_registration_page() 
-        
-# -------------------- ADMIN USER CREATION -------------------- #
-if selected ==  "Admin User Creation":
+        if st.button("Update Due Date", key="btn_due_date"):
+            db.update_ticket_due_date(ticket_id, due_date)
+            st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
+            st.rerun()
+
+# -----------------------------------------------------------------------------
+# Register User
+# -----------------------------------------------------------------------------
+elif selected == "Register User":
+    user_registration_page()
+
+# -----------------------------------------------------------------------------
+# Admin User Creation
+# -----------------------------------------------------------------------------
+elif selected == "Admin User Creation":
     st.title("👤 Admin User Creation")
-    
+
     def create_admin_user(name, username, password, whatsapp_number, property_id, admin_type):
         engine = db.engine
         with engine.connect() as conn:
             try:
-                check_query = text("SELECT id FROM admin_users WHERE username = :username")
-                existing_admin = conn.execute(check_query, {"username": username}).fetchone()
+                existing_admin = conn.execute(
+                    text("SELECT id FROM admin_users WHERE username = :username"),
+                    {"username": username},
+                ).fetchone()
 
                 if existing_admin:
                     return False, "Admin user already exists."
 
                 hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
-                # Determine final property_id based on admin_type
-                if admin_type == "Caretaker" and property_id != "None":
-                    final_property_id = property_id
-                else:
-                    final_property_id = None
+                # Only caretakers get property_id here (as per your logic)
+                final_property_id = property_id if (admin_type == "Caretaker" and property_id is not None) else None
 
-                insert_query = text("""
-                    INSERT INTO admin_users (name, username, password, whatsapp_number, property_id, admin_type) 
-                    VALUES (:name, :username, :password, :whatsapp_number, :property_id, :admin_type)
-                """)
-                conn.execute(insert_query, {
-                    "name": name,
-                    "username": username,
-                    "password": hashed_password,
-                    "whatsapp_number": whatsapp_number,
-                    "property_id": final_property_id,
-                    "admin_type": admin_type
-                })
+                conn.execute(
+                    text("""
+                        INSERT INTO admin_users (name, username, password, whatsapp_number, property_id, admin_type)
+                        VALUES (:name, :username, :password, :whatsapp_number, :property_id, :admin_type)
+                    """),
+                    {
+                        "name": name,
+                        "username": username,
+                        "password": hashed_password,
+                        "whatsapp_number": whatsapp_number,
+                        "property_id": final_property_id,
+                        "admin_type": admin_type,
+                    },
+                )
                 conn.commit()
-
-                return True, "Admin user created successfully!"
+                return True, "✅ Admin user created successfully!"
             except Exception as e:
-                return False, f"Error creating admin user: {e}"
+                return False, f"❌ Error creating admin user: {e}"
 
-
-
-            
     property_list = db.get_all_properties()
-    property_options = {f"{p['name']} (ID {p['id']})": p['id'] for p in property_list}
+    property_options = {f"{p['name']} (ID {p['id']})": p["id"] for p in property_list}
+    property_label_list = ["None"] + list(property_options.keys())
 
     with st.form("admin_user_form"):
         name = st.text_input("Full Name", placeholder="Enter admin's full name")
-        whatsapp_number = st.text_input("Whatsapp_number", placeholder="Eg 254724123456")
+        whatsapp_number = st.text_input("WhatsApp Number", placeholder="Eg 254724123456")
         username = st.text_input("Username", placeholder="Enter a unique username")
         password = st.text_input("Password", type="password", placeholder="Enter a strong password")
+
         if st.session_state.admin_role == "Super Admin":
             admin_type = st.selectbox("Admin Type", ["Super Admin", "Admin", "Property Manager", "Caretaker"])
         else:
             admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"])
-            
-        
-        property_label_list = ["None"] + list(property_options.keys())
-        selected_label = st.selectbox("Assign Property", property_label_list)
 
+        selected_label = st.selectbox("Assign Property (Caretakers only)", property_label_list)
         property_id = property_options.get(selected_label) if selected_label != "None" else None
 
         submit_button = st.form_submit_button("Create Admin User")
 
     if submit_button:
-        if name and username and password and whatsapp_number:
-            success, message = create_admin_user(
-                name, username, password, whatsapp_number, property_id, admin_type
-            )
+        if not (name and username and password and whatsapp_number):
+            st.warning("Please fill in all fields.")
+        else:
+            success, message = create_admin_user(name, username, password, whatsapp_number, property_id, admin_type)
             st.success(message) if success else st.error(message)
             if success:
                 st.rerun()
-        else:
-            st.warning("Please fill in all fields.")
-        st.subheader("Registered Admin Users")
-    
-    def fetch_admin_users():
-        engine = db.engine
-        with engine.connect() as conn:
-            query = text("""
-    SELECT 
-        a.id, 
-        a.name, 
-        a.username, 
-        p.name AS property 
-    FROM admin_users a
-    LEFT JOIN properties p ON a.property_id = p.id
-""")
-            result = conn.execute(query)
-            admins = result.fetchall()
-        return admins
-    
-    admins = fetch_admin_users()
-    
+
+    st.subheader("Registered Admin Users")
+    with db.engine.connect() as conn:
+        admins = conn.execute(
+            text("""
+                SELECT a.id, a.name, a.username, a.admin_type, p.name AS property
+                FROM admin_users a
+                LEFT JOIN properties p ON a.property_id = p.id
+                ORDER BY a.id DESC
+            """)
+        ).fetchall()
+
     if admins:
-        df = pd.DataFrame(admins, columns=["ID", "Name", "Username", "Property"])
-        st.dataframe(df)
+        df = pd.DataFrame(admins, columns=["ID", "Name", "Username", "Type", "Property"])
+        st.dataframe(df, use_container_width=True)
     else:
         st.warning("No admin users registered yet.")
-        
-#--------------------- Create Ticket --------------------- #
-if selected ==  "Create Ticket":
-    create_ticket(st.session_state.admin_id)    
-    
-#--------------------- Send Bulk Message --------------------- #
-if selected == "Send Bulk Message":
+
+# -----------------------------------------------------------------------------
+# Create Ticket
+# -----------------------------------------------------------------------------
+elif selected == "Create Ticket":
+    create_ticket(st.session_state.admin_id)
+
+# -----------------------------------------------------------------------------
+# Send Bulk Message
+# -----------------------------------------------------------------------------
+elif selected == "Send Bulk Message":
     st.title("📨 Send 'Notice' Template Message to Property Users")
 
     property_list = db.get_all_properties()
-    property_options = {f"{p['name']} (ID {p['id']})": p['id'] for p in property_list}
+    if not property_list:
+        st.warning("No properties found.")
+        st.stop()
 
-    selected_property_label = st.selectbox("Select Property", property_options.keys())
+    property_options = {f"{p['name']} (ID {p['id']})": p["id"] for p in property_list}
+    selected_property_label = st.selectbox("Select Property", list(property_options.keys()))
     selected_property_id = property_options[selected_property_label]
     property_name = selected_property_label.split(" (ID")[0]
 
     notice_text = st.text_area("Notice Text", placeholder="Write your notice content here")
 
     if st.button("Send Notice Template"):
-        if notice_text:
-            users = db.get_users_by_property(selected_property_id)
-            if not users:
-                st.warning("⚠️ No users found for this property.")
-            else:
-                sent_results = []
-                audit_entries = []
-                progress = st.progress(0)
-                total_users = len(users)
-
-                for idx, user in enumerate(users):
-                    params = [notice_text, property_name]
-                    response = db.send_template_notification(
-                        to=user["whatsapp_number"],
-                        template_name="notice",
-                        template_parameters=params
-                    )
-
-                    if "error" not in response:
-                        status = "✅ Success"
-                    else:
-                        status = f"❌ Failed - {response['error']}"
-
-                    sent_results.append({
-                        "Name": user.get("name", "N/A"),
-                        "WhatsApp": user["whatsapp_number"],
-                        "Status": status
-                    })
-
-                    audit_entries.append({
-                        "property_id": selected_property_id,
-                        "property_name": property_name,
-                        "user_name": user.get("name", "N/A"),
-                        "whatsapp_number": user["whatsapp_number"],
-                        "status": status,
-                        "template_name": "notice",
-                        "notice_text": notice_text
-                    })
-
-                    progress.progress((idx + 1) / total_users)
-
-                # Save audit trail to DB
-                db.save_bulk_audit(audit_entries)
-
-                # Show report
-                st.subheader("📋 Send Status Report")
-                st.dataframe(pd.DataFrame(sent_results))
-
-                csv_data = pd.DataFrame(sent_results).to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="⬇ Download Report as CSV",
-                    data=csv_data,
-                    file_name=f"notice_send_report_{property_name.replace(' ', '_')}.csv",
-                    mime='text/csv'
-                )
-        else:
+        if not notice_text.strip():
             st.error("⚠️ Please enter the notice text.")
+            st.stop()
 
+        users = db.get_users_by_property(selected_property_id)
+        if not users:
+            st.warning("⚠️ No users found for this property.")
+            st.stop()
 
-    
-# -------------------- ADMIN REASSIGNMENT HISTORY PAGE -------------------- #
-if selected ==  "Admin Reassignment History":
+        sent_results = []
+        audit_entries = []
+        progress = st.progress(0)
+        total_users = len(users)
+
+        for idx, user in enumerate(users):
+            params = [notice_text.strip(), property_name]
+            response = db.send_template_notification(
+                to=user["whatsapp_number"],
+                template_name="notice",
+                template_parameters=params,
+            )
+
+            if "error" not in response:
+                status = "✅ Success"
+            else:
+                status = f"❌ Failed - {response['error']}"
+
+            sent_results.append({"Name": user.get("name", "N/A"), "WhatsApp": user["whatsapp_number"], "Status": status})
+
+            audit_entries.append(
+                {
+                    "property_id": selected_property_id,
+                    "property_name": property_name,
+                    "user_name": user.get("name", "N/A"),
+                    "whatsapp_number": user["whatsapp_number"],
+                    "status": status,
+                    "template_name": "notice",
+                    "notice_text": notice_text.strip(),
+                }
+            )
+
+            progress.progress((idx + 1) / total_users)
+
+        db.save_bulk_audit(audit_entries)
+
+        st.subheader("📋 Send Status Report")
+        report_df = pd.DataFrame(sent_results)
+        st.dataframe(report_df, use_container_width=True)
+
+        csv_data = report_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="⬇ Download Report as CSV",
+            data=csv_data,
+            file_name=f"notice_send_report_{property_name.replace(' ', '_')}.csv",
+            mime="text/csv",
+        )
+
+# -----------------------------------------------------------------------------
+# Admin Reassignment History
+# -----------------------------------------------------------------------------
+elif selected == "Admin Reassignment History":
     st.title("📜 Admin Reassignment History")
-
     reassign_log_df = db.fetch_admin_reassignment_log()
-
-    if not reassign_log_df.empty:
-        st.dataframe(reassign_log_df)
+    if reassign_log_df is not None and not reassign_log_df.empty:
+        st.dataframe(reassign_log_df, use_container_width=True)
     else:
         st.warning("⚠️ No reassignments have been logged yet.")
 
-# -------------------- Property Creation PAGE -------------------- #
-if selected ==  "Create Property":
+# -----------------------------------------------------------------------------
+# Create Property
+# -----------------------------------------------------------------------------
+elif selected == "Create Property":
     st.title("🏘️ Create New Property")
 
+    supervisors = db.get_available_property_managers()
+    if not supervisors:
+        st.warning("No Property Managers found. Create one first.")
+        st.stop()
 
-    conn = Conn()
-
-    # Fetch available property managers (supervisors)
-    supervisors = conn.get_available_property_managers()
-    supervisor_options = {f"{s['name']} (ID: {s['id']})": s['id'] for s in supervisors}
+    supervisor_options = {f"{s['name']} (ID: {s['id']})": s["id"] for s in supervisors}
 
     with st.form("create_property_form"):
         name = st.text_input("Property Name", placeholder="e.g., Westview Apartments")
-        selected_supervisor = st.selectbox("Assign Property Manager", options=supervisor_options.keys())
+        selected_supervisor = st.selectbox("Assign Property Manager", options=list(supervisor_options.keys()))
         submit = st.form_submit_button("Create Property")
 
     if submit:
-        success, msg = conn.create_property(name, supervisor_options[selected_supervisor])
-        if success:
-            st.success(msg)
-            st.rerun()
+        if not name.strip():
+            st.error("Please enter a property name.")
         else:
-            st.error(msg)
-            
-            
-# ------------------  USER Edit ------------------ #
-elif selected ==  "Edit/Delete User":    
+            success, msg = db.create_property(name.strip(), supervisor_options[selected_supervisor])
+            if success:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+
+# -----------------------------------------------------------------------------
+# Edit/Delete User
+# -----------------------------------------------------------------------------
+elif selected == "Edit/Delete User":
     edit_user()
-    
-            
-# ------------------  Property Edit ------------------ #
-    
-elif selected ==  "Edit/Delete Property":
+
+# -----------------------------------------------------------------------------
+# Edit/Delete Property
+# -----------------------------------------------------------------------------
+elif selected == "Edit/Delete Property":
     edit_properties()
-    
-    
-# ------------------  Admin Edit ------------------ #
-elif selected ==  "Edit/Delete Admin":
+
+# -----------------------------------------------------------------------------
+# Edit/Delete Admin
+# -----------------------------------------------------------------------------
+elif selected == "Edit/Delete Admin":
     edit_admins()

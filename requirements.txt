@@ -12,3 +12,4 @@ uuid
 datetime
 streamlit-timeline
 streamlit-option-menu
+streamlit-autorefresh

@@ -261,21 +261,39 @@ class Conn:
         with self.engine.connect() as conn:
             updates = conn.execute(
                 text("""
-                    SELECT ticket_id, 'Update' AS action, updated_by AS performed_by,
-                        update_text AS details, created_at AS performed_at
+                    SELECT
+                        ticket_id,
+                        'Update' AS action,
+                        updated_by AS performed_by,
+                        update_text AS details,
+                        created_at AS performed_at
                     FROM ticket_updates
                     WHERE ticket_id = :ticket_id
                 """),
                 {"ticket_id": ticket_id}
             ).fetchall()
 
+            # ✅ Reassignments: map old/new admin IDs -> names for display
+            # Assumes your admin table is `admins` with columns: id, name
             reassignments = conn.execute(
                 text("""
-                    SELECT ticket_id, 'Reassignment' AS action, changed_by_admin AS performed_by,
-                        CONCAT('Reassigned from ', old_admin, ' to ', new_admin, '. Reason: ', reason) AS details,
-                        changed_at AS performed_at
-                    FROM admin_change_log
-                    WHERE ticket_id = :ticket_id
+                    SELECT
+                        acl.ticket_id,
+                        'Reassignment' AS action,
+                        acl.changed_by_admin AS performed_by,
+                        CONCAT(
+                            'Reassigned from ',
+                            COALESCE(a_old.name, CONCAT('Admin #', acl.old_admin)),
+                            ' to ',
+                            COALESCE(a_new.name, CONCAT('Admin #', acl.new_admin)),
+                            '. Reason: ',
+                            acl.reason
+                        ) AS details,
+                        acl.changed_at AS performed_at
+                    FROM admin_change_log acl
+                    LEFT JOIN admins a_old ON a_old.id = acl.old_admin
+                    LEFT JOIN admins a_new ON a_new.id = acl.new_admin
+                    WHERE acl.ticket_id = :ticket_id
                 """),
                 {"ticket_id": ticket_id}
             ).fetchall()
@@ -284,6 +302,7 @@ class Conn:
         df = pd.DataFrame(all_logs, columns=["ticket_id", "action", "performed_by", "details", "performed_at"])
         df.sort_values(by="performed_at", inplace=True)
         return df
+
 
     # -------------------- REASSIGN ADMIN -------------------- #
     def reassign_ticket_admin(self, ticket_id, new_admin_id, old_admin_id, changed_by_admin, reason, is_super_admin=False):

@@ -291,8 +291,8 @@ class Conn:
                         ) AS details,
                         acl.changed_at AS performed_at
                     FROM admin_change_log acl
-                    LEFT JOIN admins a_old ON a_old.id = acl.old_admin
-                    LEFT JOIN admins a_new ON a_new.id = acl.new_admin
+                    LEFT JOIN admin_users a_old ON a_old.id = acl.old_admin
+                    LEFT JOIN admin_users a_new ON a_new.id = acl.new_admin
                     WHERE acl.ticket_id = :ticket_id
                 """),
                 {"ticket_id": ticket_id}

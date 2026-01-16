@@ -151,6 +151,9 @@ if selected == "Logout":
 # -----------------------------------------------------------------------------
 # Dashboard
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Dashboard
+# -----------------------------------------------------------------------------
 elif selected == "Dashboard":
     st.title("📊 Operations CRM Dashboard")
 
@@ -310,11 +313,11 @@ elif selected == "Dashboard":
     )
 
     # -----------------------------------------------------------------------------
-    # Open Tickets + Filters (filters moved just below title)
+    # Open Tickets + Filters
     # -----------------------------------------------------------------------------
     st.subheader("🎟️ Open Tickets")
 
-    # Make sure these exist (in case you didn't init them earlier)
+    # (Safety: ensure filter state exists)
     if "filter_property" not in st.session_state:
         st.session_state.filter_property = "All"
     if "filter_unit" not in st.session_state:
@@ -356,8 +359,9 @@ elif selected == "Dashboard":
 
     if unit_q.strip():
         q = unit_q.strip().lower()
-        # contains match (so searching "44" matches "445"); change to == for exact match only
-        tickets_df = tickets_df[tickets_df["unit_number"].astype(str).str.lower().str.contains(q, na=False)]
+        tickets_df = tickets_df[
+            tickets_df["unit_number"].astype(str).str.lower().str.contains(q, na=False)
+        ]
 
     if tickets_df.empty:
         st.warning("No tickets match your filters.")
@@ -401,11 +405,11 @@ elif selected == "Dashboard":
     if "is_read" in tickets_df.columns and not bool(selected_ticket.get("is_read", True)):
         db.mark_ticket_as_read(ticket_id)
 
-        # Update cache in-memory so UI reflects immediately
+        # Update filtered df in-memory
         try:
             tickets_df.loc[tickets_df["id"] == ticket_id, "is_read"] = True
 
-            # Also update the FULL cache so unread counts/hash UI doesn't fight you
+            # Update full cache too
             try:
                 full_df = st.session_state.tickets_cache
                 if isinstance(full_df, pd.DataFrame) and "is_read" in full_df.columns:
@@ -413,43 +417,39 @@ elif selected == "Dashboard":
                     st.session_state.tickets_cache = full_df
             except Exception:
                 pass
-
         except Exception:
             st.session_state.tickets_cache = None
 
-        # Keep hash aligned so watcher doesn't keep thinking something changed externally
         st.session_state.last_hash = db.get_tickets_hash()
-
-        # Refresh selected_ticket in current filtered df
         selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
 
     # -----------------------------------------------------------------------------
-    # Ticket view (UX-friendly tabs)
+    # ✅ ALWAYS-VISIBLE OVERVIEW (no tabs)
     # -----------------------------------------------------------------------------
     st.divider()
     st.markdown(f"### 🎫 Ticket #{ticket_id}")
 
-    tab_overview, tab_attachments, tab_activity = st.tabs(
-        ["🧾 Overview", "📎 Attachments", "📜 Activity"]
+    c1, c2 = st.columns([1.3, 1])
+    with c1:
+        st.write(f"**Issue:** {selected_ticket['issue_description']}")
+        st.write(f"**Category:** {selected_ticket['category']}")
+        st.write(f"**Property:** {selected_ticket['property']}")
+    with c2:
+        st.write(f"**Unit Number:** {selected_ticket['unit_number']}")
+        st.write(f"**Status:** {selected_ticket['status']}")
+        st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")
+
+    # -----------------------------------------------------------------------------
+    # ✅ TABS (Actions first)
+    # -----------------------------------------------------------------------------
+    tab_actions, tab_attachments, tab_activity = st.tabs(
+        ["⚙️ Actions", "📎 Attachments", "📜 Activity"]
     )
 
     # -----------------------------------------------------------------------------
-    # OVERVIEW (details + ALL actions)
+    # ACTIONS TAB
     # -----------------------------------------------------------------------------
-    with tab_overview:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"**Issue:** {selected_ticket['issue_description']}")
-            st.write(f"**Category:** {selected_ticket['category']}")
-            st.write(f"**Property:** {selected_ticket['property']}")
-        with col2:
-            st.write(f"**Unit Number:** {selected_ticket['unit_number']}")
-            st.write(f"**Status:** {selected_ticket['status']}")
-            st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")
-
-        st.divider()
-
-        # -------------------- STATUS UPDATE --------------------
+    with tab_actions:
         st.markdown("### ✅ Update Status")
         new_status = st.selectbox(
             "Status",
@@ -457,7 +457,6 @@ elif selected == "Dashboard":
             index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]),
             key=f"status_select_{ticket_id}",
         )
-
         if st.button("Update Status", key=f"btn_update_status_{ticket_id}"):
             db.update_ticket_status(ticket_id, new_status)
             st.session_state.tickets_cache = None
@@ -467,10 +466,8 @@ elif selected == "Dashboard":
 
         st.divider()
 
-        # -------------------- ADD UPDATE --------------------
         st.markdown("### ✍️ Add Ticket Update")
         update_text = st.text_area("Update text", key=f"update_text_{ticket_id}")
-
         if st.button("Submit Update", key=f"btn_submit_update_{ticket_id}"):
             if not update_text.strip():
                 st.error("⚠️ Please provide update text.")
@@ -483,7 +480,6 @@ elif selected == "Dashboard":
 
         st.divider()
 
-        # -------------------- REASSIGN ADMIN --------------------
         if st.session_state.admin_role != "Caretaker":
             st.markdown("### 🔄 Reassign Admin")
 
@@ -506,11 +502,7 @@ elif selected == "Dashboard":
                     format_func=lambda x: available_admins[x],
                     key=f"reassign_sel_{ticket_id}",
                 )
-
-                reassign_reason = st.text_area(
-                    "Reason for Reassignment",
-                    key=f"reassign_reason_{ticket_id}",
-                )
+                reassign_reason = st.text_area("Reason for Reassignment", key=f"reassign_reason_{ticket_id}")
 
                 if st.button("Reassign Ticket", key=f"btn_reassign_{ticket_id}"):
                     if not reassign_reason.strip():
@@ -536,17 +528,11 @@ elif selected == "Dashboard":
 
         st.divider()
 
-        # -------------------- DUE DATE --------------------
         st.markdown("### 📅 Set Due Date")
         current_due = selected_ticket.get("Due_Date")
         default_due = pd.to_datetime(current_due).date() if current_due else pd.Timestamp.today().date()
 
-        due_date = st.date_input(
-            "Select Due Date",
-            value=default_due,
-            key=f"due_date_in_{ticket_id}",
-        )
-
+        due_date = st.date_input("Select Due Date", value=default_due, key=f"due_date_in_{ticket_id}")
         if st.button("Update Due Date", key=f"btn_due_date_{ticket_id}"):
             db.update_ticket_due_date(ticket_id, due_date)
             st.session_state.tickets_cache = None
@@ -555,11 +541,10 @@ elif selected == "Dashboard":
             st.rerun()
 
     # -----------------------------------------------------------------------------
-    # ATTACHMENTS (unchanged)
+    # ATTACHMENTS TAB (grid)
     # -----------------------------------------------------------------------------
     with tab_attachments:
         media_df = db.fetch_ticket_media(ticket_id)
-
         if media_df is None or media_df.empty:
             st.info("No media files attached to this ticket.")
         else:
@@ -603,7 +588,7 @@ elif selected == "Dashboard":
                         )
 
     # -----------------------------------------------------------------------------
-    # ACTIVITY (clean feed)
+    # ACTIVITY TAB (clean feed)
     # -----------------------------------------------------------------------------
     with tab_activity:
         history_df = db.fetch_ticket_history(ticket_id)
@@ -626,103 +611,6 @@ elif selected == "Dashboard":
                     st.markdown(header)
                     st.caption(ts)
                     st.write(details)
-
-# -----------------------------------------------------------------------------
-# Register User
-# -----------------------------------------------------------------------------
-elif selected == "Register User":
-    user_registration_page()
-
-# -----------------------------------------------------------------------------
-# Admin User Creation
-# -----------------------------------------------------------------------------
-elif selected == "Admin User Creation":
-    st.title("👤 Admin User Creation")
-
-    def create_admin_user(name, username, password, whatsapp_number, property_id, admin_type):
-        engine = db.engine
-        with engine.connect() as conn:
-            try:
-                existing_admin = conn.execute(
-                    text("SELECT id FROM admin_users WHERE username = :username"),
-                    {"username": username},
-                ).fetchone()
-
-                if existing_admin:
-                    return False, "Admin user already exists."
-
-                hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-                final_property_id = property_id if (admin_type == "Caretaker" and property_id is not None) else None
-
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO admin_users (name, username, password, whatsapp_number, property_id, admin_type)
-                        VALUES (:name, :username, :password, :whatsapp_number, :property_id, :admin_type)
-                        """
-                    ),
-                    {
-                        "name": name,
-                        "username": username,
-                        "password": hashed_password,
-                        "whatsapp_number": whatsapp_number,
-                        "property_id": final_property_id,
-                        "admin_type": admin_type,
-                    },
-                )
-                conn.commit()
-                return True, "✅ Admin user created successfully!"
-            except Exception as e:
-                return False, f"❌ Error creating admin user: {e}"
-
-    property_list = db.get_all_properties()
-    property_options = {f"{p['name']} (ID {p['id']})": p["id"] for p in property_list}
-    property_label_list = ["None"] + list(property_options.keys())
-
-    with st.form("admin_user_form"):
-        name = st.text_input("Full Name", placeholder="Enter admin's full name")
-        whatsapp_number = st.text_input("WhatsApp Number", placeholder="Eg 254724123456")
-        username = st.text_input("Username", placeholder="Enter a unique username")
-        password = st.text_input("Password", type="password", placeholder="Enter a strong password")
-
-        if st.session_state.admin_role == "Super Admin":
-            admin_type = st.selectbox("Admin Type", ["Super Admin", "Admin", "Property Manager", "Caretaker"])
-        else:
-            admin_type = st.selectbox("Admin Type", ["Admin", "Property Manager", "Caretaker"])
-
-        selected_label = st.selectbox("Assign Property (Caretakers only)", property_label_list)
-        property_id = property_options.get(selected_label) if selected_label != "None" else None
-
-        submit_button = st.form_submit_button("Create Admin User")
-
-    if submit_button:
-        if not (name and username and password and whatsapp_number):
-            st.warning("Please fill in all fields.")
-        else:
-            success, message = create_admin_user(name, username, password, whatsapp_number, property_id, admin_type)
-            st.success(message) if success else st.error(message)
-            if success:
-                st.rerun()
-
-    st.subheader("Registered Admin Users")
-    with db.engine.connect() as conn:
-        admins = conn.execute(
-            text(
-                """
-                SELECT a.id, a.name, a.username, a.admin_type, p.name AS property
-                FROM admin_users a
-                LEFT JOIN properties p ON a.property_id = p.id
-                ORDER BY a.id DESC
-                """
-            )
-        ).fetchall()
-
-    if admins:
-        df = pd.DataFrame(admins, columns=["ID", "Name", "Username", "Type", "Property"])
-        st.dataframe(df, width="stretch", hide_index=True)
-    else:
-        st.warning("No admin users registered yet.")
 
 # -----------------------------------------------------------------------------
 # Create Ticket

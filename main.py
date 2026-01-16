@@ -429,10 +429,13 @@ elif selected == "Dashboard":
     st.divider()
     st.markdown(f"### 🎫 Ticket #{ticket_id}")
 
-    tab_overview, tab_attachments, tab_activity, tab_actions = st.tabs(
-        ["🧾 Overview", "📎 Attachments", "📜 Activity", "✅ Actions"]
+    tab_overview, tab_attachments, tab_activity = st.tabs(
+        ["🧾 Overview", "📎 Attachments", "📜 Activity"]
     )
 
+    # -----------------------------------------------------------------------------
+    # OVERVIEW (details + ALL actions)
+    # -----------------------------------------------------------------------------
     with tab_overview:
         col1, col2 = st.columns(2)
         with col1:
@@ -444,6 +447,116 @@ elif selected == "Dashboard":
             st.write(f"**Status:** {selected_ticket['status']}")
             st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")
 
+        st.divider()
+
+        # -------------------- STATUS UPDATE --------------------
+        st.markdown("### ✅ Update Status")
+        new_status = st.selectbox(
+            "Status",
+            ["Open", "In Progress", "Resolved"],
+            index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]),
+            key=f"status_select_{ticket_id}",
+        )
+
+        if st.button("Update Status", key=f"btn_update_status_{ticket_id}"):
+            db.update_ticket_status(ticket_id, new_status)
+            st.session_state.tickets_cache = None
+            st.session_state.last_hash = db.get_tickets_hash()
+            st.success(f"✅ Ticket #{ticket_id} updated to {new_status}!")
+            st.rerun()
+
+        st.divider()
+
+        # -------------------- ADD UPDATE --------------------
+        st.markdown("### ✍️ Add Ticket Update")
+        update_text = st.text_area("Update text", key=f"update_text_{ticket_id}")
+
+        if st.button("Submit Update", key=f"btn_submit_update_{ticket_id}"):
+            if not update_text.strip():
+                st.error("⚠️ Please provide update text.")
+            else:
+                db.add_ticket_update(ticket_id, update_text.strip(), st.session_state.admin_name)
+                st.session_state.tickets_cache = None
+                st.session_state.last_hash = db.get_tickets_hash()
+                st.success("✅ Update added successfully!")
+                st.rerun()
+
+        st.divider()
+
+        # -------------------- REASSIGN ADMIN --------------------
+        if st.session_state.admin_role != "Caretaker":
+            st.markdown("### 🔄 Reassign Admin")
+
+            admin_users = db.fetch_admin_users()
+            admin_options = {admin["id"]: admin["name"] for admin in admin_users}
+
+            current_assigned_name = selected_ticket["assigned_admin"]
+            current_assigned_id = next(
+                (aid for aid, aname in admin_options.items() if aname == current_assigned_name),
+                None,
+            )
+            available_admins = {k: v for k, v in admin_options.items() if v != current_assigned_name}
+
+            if not available_admins:
+                st.info("No other admins available.")
+            else:
+                new_admin_id = st.selectbox(
+                    "Select New Admin",
+                    list(available_admins.keys()),
+                    format_func=lambda x: available_admins[x],
+                    key=f"reassign_sel_{ticket_id}",
+                )
+
+                reassign_reason = st.text_area(
+                    "Reason for Reassignment",
+                    key=f"reassign_reason_{ticket_id}",
+                )
+
+                if st.button("Reassign Ticket", key=f"btn_reassign_{ticket_id}"):
+                    if not reassign_reason.strip():
+                        st.error("⚠️ Please provide a reason.")
+                    elif current_assigned_id is None:
+                        st.error("⚠️ Could not resolve current admin ID.")
+                    else:
+                        ok, msg = db.reassign_ticket_admin(
+                            ticket_id,
+                            new_admin_id,
+                            current_assigned_id,
+                            st.session_state.admin_name,
+                            reassign_reason.strip(),
+                            (st.session_state.admin_role == "Super Admin"),
+                        )
+                        if ok:
+                            st.session_state.tickets_cache = None
+                            st.session_state.last_hash = db.get_tickets_hash()
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+
+        st.divider()
+
+        # -------------------- DUE DATE --------------------
+        st.markdown("### 📅 Set Due Date")
+        current_due = selected_ticket.get("Due_Date")
+        default_due = pd.to_datetime(current_due).date() if current_due else pd.Timestamp.today().date()
+
+        due_date = st.date_input(
+            "Select Due Date",
+            value=default_due,
+            key=f"due_date_in_{ticket_id}",
+        )
+
+        if st.button("Update Due Date", key=f"btn_due_date_{ticket_id}"):
+            db.update_ticket_due_date(ticket_id, due_date)
+            st.session_state.tickets_cache = None
+            st.session_state.last_hash = db.get_tickets_hash()
+            st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
+            st.rerun()
+
+    # -----------------------------------------------------------------------------
+    # ATTACHMENTS (unchanged)
+    # -----------------------------------------------------------------------------
     with tab_attachments:
         media_df = db.fetch_ticket_media(ticket_id)
 
@@ -469,7 +582,7 @@ elif selected == "Dashboard":
                             background:rgba(255,255,255,0.03);
                             margin-bottom:10px;
                         ">
-                            <div style="font-weight:700; margin-bottom:6px;">{f_name}</div>
+                            <div style="font-weight:700;">{f_name}</div>
                             <div style="opacity:0.8; font-size:12px;">Type: {m_type}</div>
                         </div>
                         """,
@@ -489,6 +602,9 @@ elif selected == "Dashboard":
                             use_container_width=True,
                         )
 
+    # -----------------------------------------------------------------------------
+    # ACTIVITY (clean feed)
+    # -----------------------------------------------------------------------------
     with tab_activity:
         history_df = db.fetch_ticket_history(ticket_id)
 
@@ -510,93 +626,6 @@ elif selected == "Dashboard":
                     st.markdown(header)
                     st.caption(ts)
                     st.write(details)
-
-    with tab_actions:
-        # Status update
-        st.markdown("### ✅ Update Status")
-        new_status = st.selectbox(
-            "Status",
-            ["Open", "In Progress", "Resolved"],
-            index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]),
-            key=f"status_select_{ticket_id}",
-        )
-        if st.button("Update Status", key=f"btn_update_status_{ticket_id}"):
-            db.update_ticket_status(ticket_id, new_status)
-            st.session_state.tickets_cache = None
-            st.session_state.last_hash = db.get_tickets_hash()
-            st.success(f"✅ Ticket #{ticket_id} updated to {new_status}!")
-            st.rerun()
-
-        # Add update
-        st.markdown("### ✍️ Add Ticket Update")
-        update_text = st.text_area("Update text", key=f"update_text_{ticket_id}")
-        if st.button("Submit Update", key=f"btn_submit_update_{ticket_id}"):
-            if not update_text.strip():
-                st.error("⚠️ Please provide update text.")
-            else:
-                db.add_ticket_update(ticket_id, update_text.strip(), st.session_state.admin_name)
-                st.session_state.tickets_cache = None
-                st.session_state.last_hash = db.get_tickets_hash()
-                st.success("✅ Update added successfully!")
-                st.rerun()
-
-        # Reassign admin
-        if st.session_state.admin_role != "Caretaker":
-            st.markdown("### 🔄 Reassign Admin")
-            admin_users = db.fetch_admin_users()
-            admin_options = {admin["id"]: admin["name"] for admin in admin_users}
-
-            current_assigned_name = selected_ticket["assigned_admin"]
-            current_assigned_id = next(
-                (aid for aid, aname in admin_options.items() if aname == current_assigned_name), None
-            )
-            available_admins = {k: v for k, v in admin_options.items() if v != current_assigned_name}
-
-            if not available_admins:
-                st.info("No other admins available.")
-            else:
-                new_admin_id = st.selectbox(
-                    "Select New Admin",
-                    list(available_admins.keys()),
-                    format_func=lambda x: available_admins[x],
-                    key=f"reassign_sel_{ticket_id}",
-                )
-                reassign_reason = st.text_area("Reason for Reassignment", key=f"reassign_reason_{ticket_id}")
-
-                if st.button("Reassign Ticket", key=f"btn_reassign_{ticket_id}"):
-                    if not reassign_reason.strip():
-                        st.error("⚠️ Please provide a reason.")
-                    elif current_assigned_id is None:
-                        st.error("⚠️ Could not resolve current admin ID.")
-                    else:
-                        ok, msg = db.reassign_ticket_admin(
-                            ticket_id,
-                            new_admin_id,
-                            current_assigned_id,
-                            st.session_state.admin_name,
-                            reassign_reason.strip(),
-                            (st.session_state.admin_role == "Super Admin"),
-                        )
-                        if ok:
-                            st.session_state.tickets_cache = None
-                            st.session_state.last_hash = db.get_tickets_hash()
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error(msg)
-
-        # Due date
-        st.markdown("### 📅 Set Due Date")
-        current_due = selected_ticket.get("Due_Date")
-        default_due = pd.to_datetime(current_due).date() if current_due else pd.Timestamp.today().date()
-        due_date = st.date_input("Select Due Date", value=default_due, key=f"due_date_in_{ticket_id}")
-
-        if st.button("Update Due Date", key=f"btn_due_date_{ticket_id}"):
-            db.update_ticket_due_date(ticket_id, due_date)
-            st.session_state.tickets_cache = None
-            st.session_state.last_hash = db.get_tickets_hash()
-            st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
-            st.rerun()
 
 # -----------------------------------------------------------------------------
 # Register User

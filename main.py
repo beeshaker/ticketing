@@ -220,7 +220,7 @@ elif selected == "Dashboard":
                 filename = row.get("filename", "attachment")
 
                 if media_type == "image":
-                    st.image(BytesIO(media_blob), caption=filename, use_container_width=True)
+                    st.image(BytesIO(media_blob), caption=filename, width=True)
                 elif media_type == "video":
                     st.video(BytesIO(media_blob))
                 elif media_type == "document":
@@ -443,7 +443,7 @@ elif selected == "Admin User Creation":
 
     if admins:
         df = pd.DataFrame(admins, columns=["ID", "Name", "Username", "Type", "Property"])
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width=True)
     else:
         st.warning("No admin users registered yet.")
 
@@ -519,7 +519,7 @@ elif selected == "Send Bulk Message":
 
         st.subheader("📋 Send Status Report")
         report_df = pd.DataFrame(sent_results)
-        st.dataframe(report_df, use_container_width=True)
+        st.dataframe(report_df, width=True)
 
         csv_data = report_df.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -536,7 +536,7 @@ elif selected == "Admin Reassignment History":
     st.title("📜 Admin Reassignment History")
     reassign_log_df = db.fetch_admin_reassignment_log()
     if reassign_log_df is not None and not reassign_log_df.empty:
-        st.dataframe(reassign_log_df, use_container_width=True)
+        st.dataframe(reassign_log_df, width=True)
     else:
         st.warning("⚠️ No reassignments have been logged yet.")
 

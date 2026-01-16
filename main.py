@@ -134,45 +134,44 @@ if selected == "Logout":
 elif selected == "Dashboard":
     st.title("📊 Operations CRM Dashboard")
 
-    # 1. SILENT TIMER: Runs every 15 seconds to check for DB changes
+    # 1. The Background Timer
     st_autorefresh(interval=15000, key="silent_check") 
 
-    # 2. HASH CHECK: Get the current state (Count-MaxID-UnreadCount)
+    # 2. Get the Heartbeat (Lightweight)
     current_hash = db.get_tickets_hash()
     
-    # Initialize session state tracking
+    # Initialize session state if first run
     if "last_hash" not in st.session_state:
         st.session_state.last_hash = current_hash
-        try:
-            st.session_state.last_max_id = int(current_hash.split("-")[1])
-        except (IndexError, ValueError):
-            st.session_state.last_max_id = 0
+        st.session_state.tickets_cache = None # Store the data here to prevent re-fetching
 
-    # 3. CHANGE DETECTION & NOTIFICATION
-    if current_hash != st.session_state.last_hash:
-        try:
-            new_max_id = int(current_hash.split("-")[1])
-        except (IndexError, ValueError):
-            new_max_id = st.session_state.last_max_id
-
-        # 🔔 NEW TICKET TOAST: Only if the highest ID increased
-        if new_max_id > st.session_state.last_max_id:
-            st.toast("🔔 New Ticket Received!", icon="🎫")
+    # 3. SMART DATA FETCHING (The Flicker Killer)
+    # We only fetch from the DB if:
+    # a) It's the first time loading (tickets_cache is None)
+    # b) The hash changed (new ticket, read status changed, etc.)
+    
+    if st.session_state.tickets_cache is None or current_hash != st.session_state.last_hash:
+        # Only download the heavy stuff if something actually changed
+        if st.session_state.admin_role in ("Admin", "Super Admin"):
+            st.session_state.tickets_cache = db.fetch_tickets("All")
+        else:
+            st.session_state.tickets_cache = db.fetch_open_tickets(st.session_state.admin_id)
         
-        # Update state and rerun the app to show new data
+        # Update the hash so we don't fetch again in 15 seconds
         st.session_state.last_hash = current_hash
-        st.session_state.last_max_id = new_max_id
-        st.rerun()
 
-    # 4. DATA FETCHING: Based on role
-    if st.session_state.admin_role in ("Admin", "Super Admin"):
-        tickets_df = db.fetch_tickets("All")
-    else:
-        tickets_df = db.fetch_open_tickets(st.session_state.admin_id)
+    # Now use the CACHED data instead of calling the DB again
+    tickets_df = st.session_state.tickets_cache
 
     if tickets_df is None or tickets_df.empty:
         st.info("✅ No open tickets found.")
         st.stop()
+
+    # -------------------------------------------------------------------------
+    # 4. RENDER UI (Using the cached tickets_df)
+    # -------------------------------------------------------------------------
+    st.subheader("🎟️ Open Tickets")
+    st.dataframe(tickets_df, width="stretch")
 
     st.subheader("🎟️ Open Tickets")
     st.dataframe(tickets_df, width="stretch")

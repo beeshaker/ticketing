@@ -101,6 +101,39 @@ class Conn:
         df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
         return df
 
+    # -------------------- DATABASE MONITORING (FOR SILENT REFRESH) -------------------- #
+    
+    def get_tickets_hash(self):
+        """
+        Returns a composite string: 'Count-MaxID-UnreadCount'.
+        This changes if a ticket is added, deleted, resolved, or marked as read.
+        """
+        from sqlalchemy import text
+        # We only monitor active (non-resolved) tickets
+        query = text("""
+            SELECT 
+                COUNT(id), 
+                MAX(id), 
+                SUM(CASE WHEN is_read = FALSE THEN 1 ELSE 0 END)
+            FROM tickets 
+            WHERE status != 'Resolved'
+        """)
+        
+        with self.engine.connect() as conn:
+            result = conn.execute(query).fetchone()
+            
+            # Fallback for empty table
+            if not result or result[0] == 0:
+                return "0-0-0"
+            
+            count = result[0]
+            max_id = result[1] if result[1] is not None else 0
+            unread = int(result[2]) if result[2] is not None else 0
+            
+            return f"{count}-{max_id}-{unread}"
+
+    # -------------------- UPDATE TICKET STATUS -------------------- #
+
     def mark_ticket_as_read(self, ticket_id):
         """Updates the is_read status to true in the database."""
         from sqlalchemy import text

@@ -131,10 +131,38 @@ if selected == "Logout":
 elif selected == "Dashboard":
     st.title("📊 Operations CRM Dashboard")
 
-    # 1. AUTO-REFRESH: Refreshes every 30 seconds
-    st_autorefresh(interval=30000, limit=None, key="ticket_refresh")
+    # 1. SILENT TIMER: Runs every 15 seconds to check for DB changes
+    st_autorefresh(interval=15000, key="silent_check") 
 
-    # Fetch tickets based on role
+    # 2. HASH CHECK: Get the current state (Count-MaxID-UnreadCount)
+    current_hash = db.get_tickets_hash()
+    
+    # Initialize session state tracking
+    if "last_hash" not in st.session_state:
+        st.session_state.last_hash = current_hash
+        # Extract Max ID from the hash (the middle number)
+        try:
+            st.session_state.last_max_id = int(current_hash.split("-")[1])
+        except (IndexError, ValueError):
+            st.session_state.last_max_id = 0
+
+    # 3. CHANGE DETECTION & NOTIFICATION
+    if current_hash != st.session_state.last_hash:
+        try:
+            new_max_id = int(current_hash.split("-")[1])
+        except (IndexError, ValueError):
+            new_max_id = st.session_state.last_max_id
+
+        # 🔔 NEW TICKET TOAST: Only if the highest ID increased
+        if new_max_id > st.session_state.last_max_id:
+            st.toast("🔔 New Ticket Received!", icon="🎫")
+        
+        # Update state and rerun the app to show new data
+        st.session_state.last_hash = current_hash
+        st.session_state.last_max_id = new_max_id
+        st.rerun()
+
+    # 4. DATA FETCHING: Only happens on first load or after a valid rerun
     if st.session_state.admin_role in ("Admin", "Super Admin"):
         tickets_df = db.fetch_tickets("All")
     else:
@@ -146,38 +174,34 @@ elif selected == "Dashboard":
 
     st.subheader("🎟️ Open Tickets")
     
-    # Use 'width="stretch"' to resolve the console warning
+    # Updated to 'stretch' per your requirement
     st.dataframe(tickets_df, width="stretch")
 
-    # -------------------------------------------------------------------------
-    # NEW LOGIC: Visual Flash & Read Tracking
-    # -------------------------------------------------------------------------
-    
-    # Helper to create the dropdown label safely
+    # 5. TICKET SELECTION LOGIC
     def create_ticket_label(row):
-        # Safely check for the column to prevent KeyError
         is_read = row.get("is_read", True) 
         status_icon = "👁️ READ" if is_read else "🔴 NEW"
         desc_snippet = str(row.get('issue_description', 'No Description'))[:40]
         return f"{status_icon} | #{row['id']} - {desc_snippet}..."
 
-    # Apply label creation
     tickets_df['display_label'] = tickets_df.apply(create_ticket_label, axis=1)
     label_to_id_map = dict(zip(tickets_df['display_label'], tickets_df['id']))
 
-    # The Selection Dropdown
     selected_label = st.selectbox(
         "Select Ticket to View", 
-        options=tickets_df['display_label'].tolist()
+        options=tickets_df['display_label'].tolist(),
+        key="active_selection" # Persists selection across refreshes
     )
 
     ticket_id = label_to_id_map[selected_label]
 
-    # LOGIC: Check read status and update if necessary
+    # 6. AUTO-MARK AS READ
     if 'is_read' in tickets_df.columns:
         selected_row = tickets_df[tickets_df['id'] == ticket_id].iloc[0]
         if not selected_row['is_read']:
             db.mark_ticket_as_read(ticket_id)
+            # Update hash immediately so the next silent check doesn't trigger a double refresh
+            st.session_state.last_hash = db.get_tickets_hash()
             st.rerun()
 
     # -------------------------------------------------------------------------

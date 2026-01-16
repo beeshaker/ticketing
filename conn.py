@@ -62,9 +62,9 @@ class Conn:
     def fetch_tickets(self, property=None):
         """Fetches all non-resolved tickets with read status."""
         query = """
-        SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
-               p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, 
-               t.due_date AS Due_Date, t.is_read
+        SELECT t.id, t.status, u.name, t.issue_description, t.due_date AS Due_Date, t.category,
+               p.name AS property, u.unit_number, u.whatsapp_number, t.created_at,  a.name AS assigned_admin, 
+                t.is_read
         FROM tickets t
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id

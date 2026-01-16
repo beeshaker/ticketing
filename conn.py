@@ -37,10 +37,11 @@ class Conn:
 
     # -------------------- FETCH TICKETS -------------------- #
     def fetch_tickets(self, property=None):
-        """Fetches all non-resolved tickets."""
+        """Fetches all non-resolved tickets with read status."""
         query = """
         SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
-            p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date AS Due_Date
+               p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, 
+               t.due_date AS Due_Date, t.is_read
         FROM tickets t
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
@@ -58,11 +59,34 @@ class Conn:
         return df
 
     # -------------------- FETCH OPEN/ACTIVE TICKETS FOR AN ADMIN -------------------- #
-    def fetch_open_tickets(self, admin_id=None):
-        """Fetch tickets for an admin (assigned or previously assigned), excluding resolved."""
+    def fetch_tickets(self, property=None):
+        """Fetches all non-resolved tickets with read status."""
         query = """
         SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
-            p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, t.due_date AS Due_Date
+               p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, 
+               t.due_date AS Due_Date, t.is_read
+        FROM tickets t
+        JOIN users u ON t.user_id = u.id
+        LEFT JOIN admin_users a ON t.assigned_admin = a.id
+        LEFT JOIN properties p ON t.property_id = p.id
+        WHERE t.status != 'Resolved'
+        """
+
+        params = ()
+        if property and property != "All":
+            query += " AND p.name = %s"
+            params = (property,)
+
+        df = pd.read_sql(query, self.engine, params=params)
+        df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
+        return df
+
+    def fetch_open_tickets(self, admin_id=None):
+        """Fetch tickets for an admin, including read status."""
+        query = """
+        SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
+               p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, 
+               t.due_date AS Due_Date, t.is_read
         FROM tickets t
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
@@ -76,6 +100,14 @@ class Conn:
         df = pd.read_sql(query, self.engine, params=(admin_id, admin_id))
         df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
         return df
+
+    def mark_ticket_as_read(self, ticket_id):
+        """Updates the is_read status to true in the database."""
+        from sqlalchemy import text
+        query = text("UPDATE tickets SET is_read = TRUE WHERE id = :id")
+        with self.engine.connect() as conn:
+            conn.execute(query, {"id": ticket_id})
+            conn.commit()
 
     # -------------------- FETCH ADMIN USERS -------------------- #
     def fetch_admin_users(self):

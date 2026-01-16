@@ -170,8 +170,7 @@ elif selected == "Dashboard":
     # -------------------------------------------------------------------------
     # 4. RENDER UI (Using the cached tickets_df)
     # -------------------------------------------------------------------------
-    st.subheader("🎟️ Open Tickets")
-    st.dataframe(tickets_df, width="stretch")
+   
 
     st.subheader("🎟️ Open Tickets")
     st.dataframe(tickets_df, width="stretch")

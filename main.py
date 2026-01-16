@@ -230,14 +230,54 @@ elif selected == "Dashboard":
         st.stop()
 
     # Optional: show NEW/unread count on top
-    if "is_read" in tickets_df.columns:
-        new_count = int((tickets_df["is_read"] == False).sum())
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Open tickets", len(tickets_df))
-        c2.metric("New tickets", new_count)
-        c3.metric("Your role", st.session_state.admin_role)
-    else:
-        st.metric("Open tickets", len(tickets_df))
+    # --- nicer stat cards (Open / Unread) ---
+st.markdown("""
+<style>
+.stat-wrap {display:flex; gap:16px; margin: 10px 0 6px 0;}
+.stat-card{
+  flex:1;
+  padding:18px 18px 14px 18px;
+  border-radius:14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.stat-title{
+  font-size:14px;
+  color: rgba(255,255,255,0.70);
+  margin-bottom:6px;
+}
+.stat-value{
+  font-size:44px;
+  font-weight:800;
+  line-height:1.0;
+  color: rgba(255,255,255,0.95);
+}
+.stat-sub{
+  margin-top:10px;
+  font-size:12px;
+  color: rgba(255,255,255,0.55);
+}
+</style>
+""", unsafe_allow_html=True)
+
+open_count = int(len(tickets_df))
+unread_count = int((tickets_df["is_read"] == False).sum()) if "is_read" in tickets_df.columns else 0
+
+st.markdown(f"""
+<div class="stat-wrap">
+  <div class="stat-card">
+    <div class="stat-title">Open tickets</div>
+    <div class="stat-value">{open_count}</div>
+    <div class="stat-sub">Currently active</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-title">Unread tickets</div>
+    <div class="stat-value">{unread_count}</div>
+    <div class="stat-sub">Not yet opened</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
 
     # UI container
     main_ui_container = st.container()

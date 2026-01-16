@@ -394,6 +394,11 @@ elif selected == "Dashboard":
     if "filter_due_bucket" not in st.session_state:
         st.session_state.filter_due_bucket = "All"
 
+    def clear_filters():
+        st.session_state["filter_property"] = "All"
+        st.session_state["filter_unit"] = ""
+        st.session_state["filter_due_bucket"] = "All"
+
     # ✅ 4 filters: property, unit, clear, due-date bucket
     f1, f2, f3, f4 = st.columns([1, 1, 0.6, 0.9])
 
@@ -417,12 +422,11 @@ elif selected == "Dashboard":
             placeholder="e.g. A1 / 445",
         )
 
+    
+
     with f3:
-        if st.button("Clear filters", use_container_width=True):
-            st.session_state.filter_property = "All"
-            st.session_state.filter_unit = ""
-            st.session_state.filter_due_bucket = "All"
-            st.rerun()
+        st.button("Clear filters", use_container_width=True, on_click=clear_filters)
+
 
     with f4:
         due_filter = st.selectbox(

@@ -11,7 +11,7 @@ def admin_signup():
 
     # --- UI role labels (DB stays the same) ---
     ROLE_LABELS = {
-        "Property Supervisor": "Property Manager",  # UI label only
+        "Property Supervisor": "Property Supervisor",  # UI label only
         "Super Admin": "Super Admin",
         "Procurement Admin": "Procurement Admin",
     }
@@ -25,7 +25,7 @@ def admin_signup():
     # Choose role in UI (optional, you can hardcode if you want)
     role_ui = st.selectbox(
         "Admin Role",
-        ["Property Manager", "Super Admin", "Procurement Admin"],
+        ["Property Supervisor", "Super Admin", "Procurement Admin"],
         index=0
     )
     admin_type_db = ROLE_LABELS_REV.get(role_ui, role_ui)  # convert UI -> DB value

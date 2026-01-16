@@ -456,6 +456,31 @@ class Conn:
         with self.engine.connect() as conn:
             df = pd.read_sql(text(query), conn)
         return df.to_dict("records")
+    
+
+    def get_units_by_property(self, property_id):
+        """
+        Returns a list of units for a property.
+        Expected return shape: [{"unit_number": "A1"}, {"unit_number": "B2"}, ...]
+        """
+        if not property_id:
+            return []
+
+        with self.engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT DISTINCT unit_number
+                    FROM users
+                    WHERE property_id = :property_id
+                      AND unit_number IS NOT NULL
+                      AND TRIM(unit_number) <> ''
+                    ORDER BY unit_number
+                """),
+                {"property_id": property_id}
+            ).mappings().all()
+
+            return [dict(r) for r in result]
+
 
     def update_property(self, property_id, name, supervisor_id):
         """

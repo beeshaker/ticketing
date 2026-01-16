@@ -127,20 +127,17 @@ if selected == "Logout":
 # -----------------------------------------------------------------------------
 # Dashboard
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# Dashboard
-# -----------------------------------------------------------------------------
+
 elif selected == "Dashboard":
     st.title("📊 Operations CRM Dashboard")
 
-    # 1. AUTO-REFRESH: Refreshes every 30 seconds to check for new tickets
+    # 1. AUTO-REFRESH: Refreshes every 30 seconds
     st_autorefresh(interval=30000, limit=None, key="ticket_refresh")
 
     # Fetch tickets based on role
     if st.session_state.admin_role in ("Admin", "Super Admin"):
         tickets_df = db.fetch_tickets("All")
     else:
-        # Ensure your fetch_open_tickets SQL query includes the 'is_read' column!
         tickets_df = db.fetch_open_tickets(st.session_state.admin_id)
 
     if tickets_df is None or tickets_df.empty:
@@ -148,45 +145,40 @@ elif selected == "Dashboard":
         st.stop()
 
     st.subheader("🎟️ Open Tickets")
+    
+    # Use 'width="stretch"' to resolve the console warning
+    st.dataframe(tickets_df, width="stretch")
 
     # -------------------------------------------------------------------------
     # NEW LOGIC: Visual Flash & Read Tracking
     # -------------------------------------------------------------------------
     
-    # helper to create the dropdown label
+    # Helper to create the dropdown label safely
     def create_ticket_label(row):
-        # Check if 'is_read' exists in DF, default to True (Read) if missing to prevent errors
-        is_read = row.get("is_read", False) 
-        
-        # VISUAL INDICATORS
+        # Safely check for the column to prevent KeyError
+        is_read = row.get("is_read", True) 
         status_icon = "👁️ READ" if is_read else "🔴 NEW"
-        desc_snippet = str(row['issue_description'])[:40]
+        desc_snippet = str(row.get('issue_description', 'No Description'))[:40]
         return f"{status_icon} | #{row['id']} - {desc_snippet}..."
 
-    # Apply label creation to dataframe
+    # Apply label creation
     tickets_df['display_label'] = tickets_df.apply(create_ticket_label, axis=1)
-
-    # Create a mapping dictionary: Label -> Ticket ID
     label_to_id_map = dict(zip(tickets_df['display_label'], tickets_df['id']))
 
-    # The Dropdown
+    # The Selection Dropdown
     selected_label = st.selectbox(
         "Select Ticket to View", 
         options=tickets_df['display_label'].tolist()
     )
 
-    # Get the ID based on selection
     ticket_id = label_to_id_map[selected_label]
 
-    # LOGIC: If 'New', mark as 'Read' and refresh immediately
-    selected_row_index = tickets_df[tickets_df['id'] == ticket_id].index[0]
-    current_read_status = tickets_df.at[selected_row_index, 'is_read']
-
-    if not current_read_status:
-        # Update DB
-        db.mark_ticket_as_read(ticket_id)
-        # Force reload so the icon turns from 🔴 to 👁️
-        st.rerun()
+    # LOGIC: Check read status and update if necessary
+    if 'is_read' in tickets_df.columns:
+        selected_row = tickets_df[tickets_df['id'] == ticket_id].iloc[0]
+        if not selected_row['is_read']:
+            db.mark_ticket_as_read(ticket_id)
+            st.rerun()
 
     # -------------------------------------------------------------------------
     # Display Details (Existing Logic)

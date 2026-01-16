@@ -159,9 +159,10 @@ class Conn:
     def send_whatsapp_notification(self, to, message):
         """Sends a WhatsApp message using the Flask backend API."""
         url = st.secrets.URL
+        api_key = st.secrets.get("INTERNAL_API_KEY")
         headers = {
             "Content-Type": "application/json",
-            "X-API-KEY": os.getenv("INTERNAL_API_KEY")
+            "X-API-KEY": api_key
         }
         payload = {"to": to, "message": message}
 
@@ -174,9 +175,10 @@ class Conn:
     def send_template_notification(self, to, template_name, template_parameters):
         """Sends a WhatsApp template message using the Flask backend API."""
         url = st.secrets.URL
+        api_key = st.secrets.get("INTERNAL_API_KEY")
         headers = {
             "Content-Type": "application/json",
-            "X-API-KEY": os.getenv("INTERNAL_API_KEY")
+            "X-API-KEY": api_key
         }
         payload = {
             "to": to,

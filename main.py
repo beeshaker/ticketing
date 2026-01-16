@@ -46,6 +46,13 @@ if "new_ticket_msg" not in st.session_state:
 if "selected_ticket_id" not in st.session_state:
     st.session_state.selected_ticket_id = None
 
+# Filter UI state (so clearing goes back to normal)
+if "filter_property" not in st.session_state:
+    st.session_state.filter_property = "All"
+if "filter_unit" not in st.session_state:
+    st.session_state.filter_unit = ""
+
+
 # -----------------------------------------------------------------------------
 # License check
 # -----------------------------------------------------------------------------
@@ -220,10 +227,55 @@ elif selected == "Dashboard":
 
         st.session_state.last_hash = current_hash
 
-    tickets_df = st.session_state.tickets_cache
+    tickets_df_all = st.session_state.tickets_cache
 
-    if tickets_df is None or tickets_df.empty:
+    if tickets_df_all is None or tickets_df_all.empty:
         st.info("✅ No open tickets found.")
+        st.stop()
+
+    # -----------------------------------------------------------------------------
+    # Filters: Property + Unit Number
+    # -----------------------------------------------------------------------------
+    st.markdown("### 🔎 Filters")
+
+    f1, f2, f3 = st.columns([1, 1, 0.6])
+
+    with f1:
+        prop_vals = sorted([p for p in tickets_df_all["property"].dropna().unique().tolist()])
+        prop_options = ["All"] + prop_vals
+        selected_prop = st.selectbox(
+            "Property",
+            options=prop_options,
+            index=prop_options.index(st.session_state.filter_property) if st.session_state.filter_property in prop_options else 0,
+            key="filter_property",
+        )
+
+    with f2:
+        unit_q = st.text_input(
+            "Unit number",
+            value=st.session_state.filter_unit,
+            key="filter_unit",
+            placeholder="e.g. A1 / 445",
+        )
+
+    with f3:
+        if st.button("Clear filters", use_container_width=True):
+            st.session_state.filter_property = "All"
+            st.session_state.filter_unit = ""
+            st.rerun()
+
+    tickets_df = tickets_df_all.copy()
+
+    if selected_prop and selected_prop != "All":
+        tickets_df = tickets_df[tickets_df["property"] == selected_prop]
+
+    if unit_q.strip():
+        q = unit_q.strip().lower()
+        # contains match (so searching "44" matches "445"); change to == for exact match only
+        tickets_df = tickets_df[tickets_df["unit_number"].astype(str).str.lower().str.contains(q, na=False)]
+
+    if tickets_df.empty:
+        st.warning("No tickets match your filters.")
         st.stop()
 
     # ---- Ticket Selection (stable by id) ----
@@ -242,59 +294,58 @@ elif selected == "Dashboard":
     if st.session_state.selected_ticket_id not in ticket_ids:
         st.session_state.selected_ticket_id = ticket_ids[0]
 
-    # ---- Stats (calculated BEFORE display but AFTER data fetched) ----
+    # ---- Stats (based on FILTERED df) ----
     st.markdown(
-    """
-    <style>
-    :root{
-      --stat-bg: rgba(255,255,255,0.65);
-      --stat-border: rgba(0,0,0,0.12);
-      --stat-title: rgba(0,0,0,0.75);
-      --stat-value: rgba(0,0,0,0.92);
-      --stat-sub: rgba(0,0,0,0.55);
-    }
+        """
+        <style>
+        :root{
+          --stat-bg: rgba(255,255,255,0.65);
+          --stat-border: rgba(0,0,0,0.12);
+          --stat-title: rgba(0,0,0,0.75);
+          --stat-value: rgba(0,0,0,0.92);
+          --stat-sub: rgba(0,0,0,0.55);
+        }
 
-    @media (prefers-color-scheme: dark) {
-      :root{
-        --stat-bg: rgba(255,255,255,0.06);
-        --stat-border: rgba(255,255,255,0.12);
-        --stat-title: rgba(255,255,255,0.75);
-        --stat-value: rgba(255,255,255,0.95);
-        --stat-sub: rgba(255,255,255,0.55);
-      }
-    }
+        @media (prefers-color-scheme: dark) {
+          :root{
+            --stat-bg: rgba(255,255,255,0.06);
+            --stat-border: rgba(255,255,255,0.12);
+            --stat-title: rgba(255,255,255,0.75);
+            --stat-value: rgba(255,255,255,0.95);
+            --stat-sub: rgba(255,255,255,0.55);
+          }
+        }
 
-    .stat-wrap {display:flex; gap:16px; margin: 10px 0 6px 0;}
-    .stat-card{
-      flex:1;
-      padding:18px 18px 14px 18px;
-      border-radius:14px;
-      background: var(--stat-bg);
-      border: 1px solid var(--stat-border);
-      backdrop-filter: blur(6px);
-    }
-    .stat-title{
-      font-size:14px;
-      color: var(--stat-title);
-      margin-bottom:6px;
-      font-weight:600;
-    }
-    .stat-value{
-      font-size:44px;
-      font-weight:800;
-      line-height:1.0;
-      color: var(--stat-value);
-    }
-    .stat-sub{
-      margin-top:10px;
-      font-size:12px;
-      color: var(--stat-sub);
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
+        .stat-wrap {display:flex; gap:16px; margin: 10px 0 6px 0;}
+        .stat-card{
+          flex:1;
+          padding:18px 18px 14px 18px;
+          border-radius:14px;
+          background: var(--stat-bg);
+          border: 1px solid var(--stat-border);
+          backdrop-filter: blur(6px);
+        }
+        .stat-title{
+          font-size:14px;
+          color: var(--stat-title);
+          margin-bottom:6px;
+          font-weight:600;
+        }
+        .stat-value{
+          font-size:44px;
+          font-weight:800;
+          line-height:1.0;
+          color: var(--stat-value);
+        }
+        .stat-sub{
+          margin-top:10px;
+          font-size:12px;
+          color: var(--stat-sub);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     open_count = int(len(tickets_df))
     unread_count = int((tickets_df["is_read"] == False).sum()) if "is_read" in tickets_df.columns else 0
@@ -317,8 +368,11 @@ elif selected == "Dashboard":
         unsafe_allow_html=True,
     )
 
+    # ---- Table (hide index + hide is_read) ----
     st.subheader("🎟️ Open Tickets")
-    st.dataframe(tickets_df, width="stretch")
+
+    display_df = tickets_df.drop(columns=["is_read"], errors="ignore")
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
     ticket_id = st.selectbox(
         "Select Ticket to View",
@@ -341,14 +395,23 @@ elif selected == "Dashboard":
         # Update cache in-memory so UI reflects immediately
         try:
             tickets_df.loc[tickets_df["id"] == ticket_id, "is_read"] = True
-            st.session_state.tickets_cache = tickets_df
+
+            # Also update the FULL cache so unread counts/hash UI doesn't fight you
+            try:
+                full_df = st.session_state.tickets_cache
+                if isinstance(full_df, pd.DataFrame) and "is_read" in full_df.columns:
+                    full_df.loc[full_df["id"] == ticket_id, "is_read"] = True
+                    st.session_state.tickets_cache = full_df
+            except Exception:
+                pass
+
         except Exception:
             st.session_state.tickets_cache = None
 
         # Keep hash aligned so watcher doesn't keep thinking something changed externally
         st.session_state.last_hash = db.get_tickets_hash()
 
-        # Update the selected_ticket object too
+        # Refresh selected_ticket in current filtered df
         selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
 
     # Details
@@ -374,7 +437,7 @@ elif selected == "Dashboard":
             for _, row in media_df.iterrows():
                 m_type, m_blob, f_name = row["media_type"], row["media_blob"], row.get("filename", "attachment")
                 if m_type == "image":
-                    st.image(BytesIO(m_blob), caption=f_name, width="stretch")  # ✅ fixed
+                    st.image(BytesIO(m_blob), caption=f_name, width="stretch")
                 elif m_type == "video":
                     st.video(BytesIO(m_blob))
                 else:
@@ -585,7 +648,7 @@ elif selected == "Admin User Creation":
 
     if admins:
         df = pd.DataFrame(admins, columns=["ID", "Name", "Username", "Type", "Property"])
-        st.dataframe(df, width="stretch")
+        st.dataframe(df, width="stretch", hide_index=True)
     else:
         st.warning("No admin users registered yet.")
 
@@ -660,7 +723,7 @@ elif selected == "Send Bulk Message":
 
         st.subheader("📋 Send Status Report")
         report_df = pd.DataFrame(sent_results)
-        st.dataframe(report_df, width="stretch")
+        st.dataframe(report_df, width="stretch", hide_index=True)
 
         csv_data = report_df.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -677,7 +740,7 @@ elif selected == "Admin Reassignment History":
     st.title("📜 Admin Reassignment History")
     reassign_log_df = db.fetch_admin_reassignment_log()
     if reassign_log_df is not None and not reassign_log_df.empty:
-        st.dataframe(reassign_log_df, width="stretch")
+        st.dataframe(reassign_log_df, width="stretch", hide_index=True)
     else:
         st.warning("⚠️ No reassignments have been logged yet.")
 

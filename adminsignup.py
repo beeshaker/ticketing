@@ -111,7 +111,11 @@ def admin_signup():
         ).fetchall()
 
     if admins:
-        df = pd.DataFrame(admins, columns=["ID", "Name", "Username", "Type"])
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        df = pd.DataFrame(admins, columns=["ID", "Name", "Username", "Type", "Property"])
+        st.dataframe(
+    df.drop(columns=["Property"]),
+    use_container_width=True,
+    hide_index=True
+)
     else:
         st.warning("No admin users registered yet.")

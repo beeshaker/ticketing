@@ -128,6 +128,9 @@ if selected == "Logout":
 # Dashboard
 # -----------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------
+# Dashboard
+# -----------------------------------------------------------------------------
 elif selected == "Dashboard":
     st.title("📊 Operations CRM Dashboard")
 
@@ -140,7 +143,6 @@ elif selected == "Dashboard":
     # Initialize session state tracking
     if "last_hash" not in st.session_state:
         st.session_state.last_hash = current_hash
-        # Extract Max ID from the hash (the middle number)
         try:
             st.session_state.last_max_id = int(current_hash.split("-")[1])
         except (IndexError, ValueError):
@@ -162,7 +164,7 @@ elif selected == "Dashboard":
         st.session_state.last_max_id = new_max_id
         st.rerun()
 
-    # 4. DATA FETCHING: Only happens on first load or after a valid rerun
+    # 4. DATA FETCHING: Based on role
     if st.session_state.admin_role in ("Admin", "Super Admin"):
         tickets_df = db.fetch_tickets("All")
     else:
@@ -173,8 +175,6 @@ elif selected == "Dashboard":
         st.stop()
 
     st.subheader("🎟️ Open Tickets")
-    
-    # Updated to 'stretch' per your requirement
     st.dataframe(tickets_df, width="stretch")
 
     # 5. TICKET SELECTION LOGIC
@@ -190,27 +190,23 @@ elif selected == "Dashboard":
     selected_label = st.selectbox(
         "Select Ticket to View", 
         options=tickets_df['display_label'].tolist(),
-        key="active_selection" # Persists selection across refreshes
+        key="active_selection"
     )
 
     ticket_id = label_to_id_map[selected_label]
+    selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
 
-    # 6. AUTO-MARK AS READ
+    # 6. AUTO-MARK AS READ (Loop Prevention)
     if 'is_read' in tickets_df.columns:
-        selected_row = tickets_df[tickets_df['id'] == ticket_id].iloc[0]
-        if not selected_row['is_read']:
+        if not selected_ticket['is_read']:
             db.mark_ticket_as_read(ticket_id)
-            # Update hash immediately so the next silent check doesn't trigger a double refresh
+            # Update hash immediately to prevent the next 15s check from triggering another rerun
             st.session_state.last_hash = db.get_tickets_hash()
             st.rerun()
 
     # -------------------------------------------------------------------------
-    # Display Details (Existing Logic)
+    # Display Details
     # -------------------------------------------------------------------------
-    
-    selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
-
-    # Ticket details
     st.divider()
     st.markdown(f"### 🎫 Ticket #{ticket_id} Details")
     
@@ -224,149 +220,102 @@ elif selected == "Dashboard":
         st.write(f"**Status:** {selected_ticket['status']}")
         st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")
 
-    # -------------------- Attached Media -------------------- #
+    # 7. MEDIA SECTION
     with st.expander("📎 Attached Files", expanded=False):
         media_df = db.fetch_ticket_media(ticket_id)
         if media_df is None or media_df.empty:
             st.info("No media files attached to this ticket.")
         else:
             for _, row in media_df.iterrows():
-                media_type = row["media_type"]
-                media_blob = row["media_blob"]
-                filename = row.get("filename", "attachment")
-
-                if media_type == "image":
-                    st.image(BytesIO(media_blob), caption=filename, width=True)
-                elif media_type == "video":
-                    st.video(BytesIO(media_blob))
-                elif media_type == "document":
-                    st.download_button(
-                        label=f"📄 Download {filename}",
-                        data=media_blob,
-                        file_name=filename,
-                        mime="application/pdf",
-                    )
+                m_type, m_blob, f_name = row["media_type"], row["media_blob"], row.get("filename", "attachment")
+                if m_type == "image":
+                    st.image(BytesIO(m_blob), caption=f_name, width=True)
+                elif m_type == "video":
+                    st.video(BytesIO(m_blob))
                 else:
-                    st.download_button(
-                        label=f"📎 Download {filename}",
-                        data=media_blob,
-                        file_name=filename,
-                        mime="application/octet-stream",
-                    )
+                    st.download_button(label=f"📥 Download {f_name}", data=m_blob, file_name=f_name, key=f"dl_{row['id']}")
 
-    # -------------------- Ticket History -------------------- #
+    # 8. HISTORY SECTION
     with st.expander("📜 Ticket History", expanded=False):
-        # ... (Keep your existing CSS and Timeline logic here) ...
-        # (I omitted the huge CSS block for brevity, but keep it in your file)
-        
         history_df = db.fetch_ticket_history(ticket_id)
         if history_df is None or history_df.empty:
             st.info("No ticket history available.")
         else:
-            # ... (Keep your existing timeline event loop) ...
             events = [] 
-            # Placeholder for your existing timeline loop logic
-            # Be sure to copy your existing loop back in here
             for _, row in history_df.iterrows():
                 dt = row["performed_at"]
                 events.append({
                     "start_date": {"year": dt.year, "month": dt.month, "day": dt.day, "hour": dt.hour, "minute": dt.minute},
                     "text": {"headline": f"{row['action']}", "text": row['details']}
                 })
-            
             timeline({"events": events})
 
-    # -------------------- Status Update -------------------- #
+    # 9. STATUS UPDATE
     st.markdown("### ✅ Update Status")
     new_status = st.selectbox(
         "Status",
         ["Open", "In Progress", "Resolved"],
         index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]),
-        key="status_select",
+        key=f"status_select_{ticket_id}",
     )
-    if st.button("Update Status", key="btn_update_status"):
+    if st.button("Update Status", key=f"btn_update_status_{ticket_id}"):
         db.update_ticket_status(ticket_id, new_status)
-        st.success(f"✅ Ticket #{ticket_id} status updated to {new_status}!")
+        st.session_state.last_hash = db.get_tickets_hash() # Update hash to avoid flicker
+        st.success(f"✅ Ticket #{ticket_id} updated to {new_status}!")
         st.rerun()
 
-    # -------------------- Add Update -------------------- #
+    # 10. ADD UPDATE
     st.markdown("### ✍️ Add Ticket Update")
-    update_text = st.text_area("Update text", key="update_text")
-    admin_name = st.session_state.admin_name
-    if st.button("Submit Update", key="btn_submit_update"):
+    update_text = st.text_area("Update text", key=f"update_text_{ticket_id}")
+    if st.button("Submit Update", key=f"btn_submit_update_{ticket_id}"):
         if not update_text.strip():
             st.error("⚠️ Please provide update text.")
         else:
-            db.add_ticket_update(ticket_id, update_text.strip(), admin_name)
+            db.add_ticket_update(ticket_id, update_text.strip(), st.session_state.admin_name)
+            st.session_state.last_hash = db.get_tickets_hash() # Update hash
             st.success("✅ Update added successfully!")
             st.rerun()
 
-    # -------------------- Reassign Admin -------------------- #
+    # 11. REASSIGN ADMIN
     if st.session_state.admin_role != "Caretaker":
         st.markdown("### 🔄 Reassign Admin")
         admin_users = db.fetch_admin_users()
         admin_options = {admin["id"]: admin["name"] for admin in admin_users}
-
+        
         current_assigned_name = selected_ticket["assigned_admin"]
-        current_assigned_id = None
-        for aid, aname in admin_options.items():
-            if aname == current_assigned_name:
-                current_assigned_id = aid
-                break
-
+        current_assigned_id = next((aid for aid, aname in admin_options.items() if aname == current_assigned_name), None)
         available_admins = {k: v for k, v in admin_options.items() if v != current_assigned_name}
 
         if not available_admins:
-            st.info("No other admins available to reassign to.")
+            st.info("No other admins available.")
         else:
-            new_admin_id = st.selectbox(
-                "Select New Admin",
-                list(available_admins.keys()),
-                format_func=lambda x: available_admins[x],
-                key="new_admin_select",
-            )
+            new_admin_id = st.selectbox("Select New Admin", list(available_admins.keys()), format_func=lambda x: available_admins[x], key=f"reassign_sel_{ticket_id}")
+            reassign_reason = st.text_area("Reason for Reassignment", key=f"reassign_reason_{ticket_id}")
 
-            reassign_reason = st.text_area("Reason for Reassignment", key="reassign_reason")
-
-            if st.button("Reassign Ticket", key="btn_reassign"):
+            if st.button("Reassign Ticket", key=f"btn_reassign_{ticket_id}"):
                 if not reassign_reason.strip():
                     st.error("⚠️ Please provide a reason.")
                 elif current_assigned_id is None:
-                    st.error("⚠️ Could not resolve current assigned admin ID.")
+                    st.error("⚠️ Could not resolve current admin ID.")
                 else:
-                    ok, msg = db.reassign_ticket_admin(
-                        ticket_id=ticket_id,
-                        new_admin_id=new_admin_id,
-                        old_admin_id=current_assigned_id,
-                        changed_by_admin=admin_name,
-                        reason=reassign_reason.strip(),
-                        is_super_admin=(st.session_state.admin_role == "Super Admin"),
-                    )
+                    ok, msg = db.reassign_ticket_admin(ticket_id, new_admin_id, current_assigned_id, st.session_state.admin_name, reassign_reason.strip(), (st.session_state.admin_role == "Super Admin"))
                     if ok:
+                        st.session_state.last_hash = db.get_tickets_hash()
                         st.success(msg)
                         st.rerun()
                     else:
                         st.error(msg)
 
-    # -------------------- Due Date -------------------- #
+    # 12. DUE DATE
     st.markdown("### 📅 Set Due Date")
-    current_due_date = selected_ticket.get("Due_Date")
+    current_due = selected_ticket.get("Due_Date")
+    default_due = pd.to_datetime(current_due).date() if current_due else pd.Timestamp.today().date()
 
-    default_due = None
-    if current_due_date:
-        try:
-            default_due = pd.to_datetime(current_due_date).date()
-        except Exception:
-            default_due = None
+    due_date = st.date_input("Select Due Date", value=default_due, key=f"due_date_in_{ticket_id}")
 
-    due_date = st.date_input(
-        "Select Due Date",
-        value=default_due if default_due else pd.Timestamp.today().date(),
-        key="due_date_input",
-    )
-
-    if st.button("Update Due Date", key="btn_due_date"):
+    if st.button("Update Due Date", key=f"btn_due_date_{ticket_id}"):
         db.update_ticket_due_date(ticket_id, due_date)
+        st.session_state.last_hash = db.get_tickets_hash()
         st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
         st.rerun()
 # -----------------------------------------------------------------------------

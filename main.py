@@ -244,23 +244,57 @@ elif selected == "Dashboard":
 
     # ---- Stats (calculated BEFORE display but AFTER data fetched) ----
     st.markdown(
-        """
-        <style>
-        .stat-wrap {display:flex; gap:16px; margin: 10px 0 6px 0;}
-        .stat-card{
-          flex:1;
-          padding:18px 18px 14px 18px;
-          border-radius:14px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.10);
-        }
-        .stat-title{font-size:14px;color: rgba(255,255,255,0.70);margin-bottom:6px;}
-        .stat-value{font-size:44px;font-weight:800;line-height:1.0;color: rgba(255,255,255,0.95);}
-        .stat-sub{margin-top:10px;font-size:12px;color: rgba(255,255,255,0.55);}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    """
+    <style>
+    :root{
+      --stat-bg: rgba(255,255,255,0.65);
+      --stat-border: rgba(0,0,0,0.12);
+      --stat-title: rgba(0,0,0,0.75);
+      --stat-value: rgba(0,0,0,0.92);
+      --stat-sub: rgba(0,0,0,0.55);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root{
+        --stat-bg: rgba(255,255,255,0.06);
+        --stat-border: rgba(255,255,255,0.12);
+        --stat-title: rgba(255,255,255,0.75);
+        --stat-value: rgba(255,255,255,0.95);
+        --stat-sub: rgba(255,255,255,0.55);
+      }
+    }
+
+    .stat-wrap {display:flex; gap:16px; margin: 10px 0 6px 0;}
+    .stat-card{
+      flex:1;
+      padding:18px 18px 14px 18px;
+      border-radius:14px;
+      background: var(--stat-bg);
+      border: 1px solid var(--stat-border);
+      backdrop-filter: blur(6px);
+    }
+    .stat-title{
+      font-size:14px;
+      color: var(--stat-title);
+      margin-bottom:6px;
+      font-weight:600;
+    }
+    .stat-value{
+      font-size:44px;
+      font-weight:800;
+      line-height:1.0;
+      color: var(--stat-value);
+    }
+    .stat-sub{
+      margin-top:10px;
+      font-size:12px;
+      color: var(--stat-sub);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
     open_count = int(len(tickets_df))
     unread_count = int((tickets_df["is_read"] == False).sum()) if "is_read" in tickets_df.columns else 0

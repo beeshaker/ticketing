@@ -248,7 +248,7 @@ elif selected == "Dashboard":
     today = pd.Timestamp.today().date()
 
     tickets_df_all["days_to_due"] = tickets_df_all["_due_date_only"].apply(
-    lambda d: (d - today).days if pd.notna(d) else None
+        lambda d: (d - today).days if pd.notna(d) else None
     )
 
     tickets_df_all["_due_bucket"] = "No due date"
@@ -399,14 +399,6 @@ elif selected == "Dashboard":
     # -------------------------------------------------------------------------
     st.subheader("🎟️ Open Tickets")
 
-    # (Safety: ensure filter state exists)
-    if "filter_property" not in st.session_state:
-        st.session_state.filter_property = "All"
-    if "filter_unit" not in st.session_state:
-        st.session_state.filter_unit = ""
-    if "filter_due_bucket" not in st.session_state:
-        st.session_state.filter_due_bucket = "All"
-
     def clear_filters():
         st.session_state["filter_property"] = "All"
         st.session_state["filter_unit"] = ""
@@ -435,11 +427,8 @@ elif selected == "Dashboard":
             placeholder="e.g. A1 / 445",
         )
 
-    
-
     with f3:
         st.button("Clear filters", use_container_width=True, on_click=clear_filters)
-
 
     with f4:
         due_filter = st.selectbox(
@@ -495,7 +484,6 @@ elif selected == "Dashboard":
         display_df.insert(0, "Due", display_df["_due_bucket"].map(ICON_MAP).fillna("⚪"))
 
     # Optional: keep helper columns hidden from display
-    # (we keep _due_bucket internally for styling, then drop the other helper)
     display_df = display_df.drop(columns=["_due_date_only"], errors="ignore")
 
     styled_df = display_df.style.apply(style_due_rows, axis=1)
@@ -794,10 +782,15 @@ elif selected == "Send Bulk Message":
                 template_parameters=params,
             )
 
-            status = "✅ Success" if "error" not in response else f"❌ Failed - {response['error']}"
+            status_text = "✅ Success" if "error" not in response else f"❌ Failed - {response['error']}"
 
+            # ✅ Use the SAME KEYS you want to swap: "status" and "whatsapp_number"
             sent_results.append(
-                {"Name": user.get("name", "N/A"), "WhatsApp": user["whatsapp_number"], "Status": status}
+                {
+                    "name": user.get("name", "N/A"),
+                    "status": status_text,
+                    "whatsapp_number": user["whatsapp_number"],
+                }
             )
 
             audit_entries.append(
@@ -806,7 +799,7 @@ elif selected == "Send Bulk Message":
                     "property_name": property_name,
                     "user_name": user.get("name", "N/A"),
                     "whatsapp_number": user["whatsapp_number"],
-                    "status": status,
+                    "status": status_text,
                     "template_name": "notice",
                     "notice_text": notice_text.strip(),
                 }
@@ -818,18 +811,15 @@ elif selected == "Send Bulk Message":
 
         st.subheader("📋 Send Status Report")
         report_df = pd.DataFrame(sent_results)
+
+        # ✅ Swap ONLY the column order (keep all columns)
         cols = report_df.columns.tolist()
+        if "status" in cols and "whatsapp_number" in cols:
+            i_status = cols.index("status")
+            i_wa = cols.index("whatsapp_number")
+            cols[i_status], cols[i_wa] = cols[i_wa], cols[i_status]
+            report_df = report_df[cols]
 
-        # Find indices
-        i_status = cols.index("status")
-        i_whatsapp = cols.index("whatsapp_number")
-
-        # Swap their positions
-        cols[i_status], cols[i_whatsapp] = cols[i_whatsapp], cols[i_status]
-
-        # Reorder dataframe
-        report_df = report_df[cols]
-        
         st.dataframe(report_df, use_container_width=True, hide_index=True)
 
         csv_data = report_df.to_csv(index=False).encode("utf-8")

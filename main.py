@@ -247,10 +247,23 @@ elif selected == "Dashboard":
 
     today = pd.Timestamp.today().date()
 
+    tickets_df_all["days_to_due"] = tickets_df_all["_due_date_only"].apply(
+    lambda d: (d - today).days if pd.notna(d) else None
+    )
+
     tickets_df_all["_due_bucket"] = "No due date"
-    tickets_df_all.loc[tickets_df_all["_due_date_only"] == today, "_due_bucket"] = "Due today"
-    tickets_df_all.loc[tickets_df_all["_due_date_only"] > today, "_due_bucket"] = "Upcoming"
-    tickets_df_all.loc[tickets_df_all["_due_date_only"] < today, "_due_bucket"] = "Overdue"
+
+    # Overdue
+    tickets_df_all.loc[tickets_df_all["days_to_due"] < 0, "_due_bucket"] = "Overdue"
+
+    # Due today
+    tickets_df_all.loc[tickets_df_all["days_to_due"] == 0, "_due_bucket"] = "Due today"
+
+    # Upcoming = within next 3 days (1–3)
+    tickets_df_all.loc[
+        tickets_df_all["days_to_due"].between(1, 3),
+        "_due_bucket"
+    ] = "Upcoming"
 
     due_upcoming = int((tickets_df_all["_due_bucket"] == "Upcoming").sum())
     due_today = int((tickets_df_all["_due_bucket"] == "Due today").sum())

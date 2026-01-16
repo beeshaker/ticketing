@@ -372,7 +372,7 @@ elif selected == "Dashboard":
           <div class="stat-card">
             <div class="stat-title">Upcoming due</div>
             <div class="stat-value">{due_upcoming}</div>
-            <div class="stat-sub">After today</div>
+            <div class="stat-sub">3 days to Due Date</div>
           </div>
           <div class="stat-card">
             <div class="stat-title">Due today</div>

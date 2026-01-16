@@ -821,8 +821,8 @@ elif selected == "Send Bulk Message":
         cols = report_df.columns.tolist()
 
         # Find indices
-        i_status = cols.index("Status")
-        i_whatsapp = cols.index("WhatsApp")
+        i_status = cols.index("status")
+        i_whatsapp = cols.index("whatsapp_number")
 
         # Swap their positions
         cols[i_status], cols[i_whatsapp] = cols[i_whatsapp], cols[i_status]

@@ -16,6 +16,7 @@ from create_ticket import create_ticket
 from edit_admins import edit_admins
 from edit_properties import edit_properties
 from edit_users import edit_user
+from adminsignup import admin_signup
 
 
 # -----------------------------------------------------------------------------
@@ -712,14 +713,14 @@ elif selected == "Create Property":
 
     supervisors = db.get_available_property_managers()
     if not supervisors:
-        st.warning("No Property Managers found. Create one first.")
+        st.warning("No Property Supervisors found. Create one first.")
         st.stop()
 
     supervisor_options = {f"{s['name']} (ID: {s['id']})": s["id"] for s in supervisors}
 
     with st.form("create_property_form"):
         name = st.text_input("Property Name", placeholder="e.g., Westview Apartments")
-        selected_supervisor = st.selectbox("Assign Property Manager", options=list(supervisor_options.keys()))
+        selected_supervisor = st.selectbox("Assign Property Supervisor", options=list(supervisor_options.keys()))
         submit = st.form_submit_button("Create Property")
 
     if submit:
@@ -750,3 +751,7 @@ elif selected == "Edit/Delete Property":
 # -----------------------------------------------------------------------------
 elif selected == "Edit/Delete Admin":
     edit_admins()
+
+
+elif selected == "Admin User Creation":
+    admin_signup()  

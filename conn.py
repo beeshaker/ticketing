@@ -453,7 +453,7 @@ class Conn:
         query = """
         SELECT id, name
         FROM admin_users
-        WHERE admin_type = 'Property Manager'
+        WHERE admin_type = 'Property Supervisor'
         """
         with self.engine.connect() as conn:
             df = pd.read_sql(text(query), conn)
@@ -506,11 +506,11 @@ class Conn:
 
             check_query = text("""
                 SELECT id FROM admin_users
-                WHERE id = :id AND admin_type = 'Property Manager'
+                WHERE id = :id AND admin_type = 'Property Supervisor'
             """)
             valid = conn.execute(check_query, {"id": supervisor_id}).fetchone()
             if not valid:
-                raise ValueError("Supervisor must be a valid Property Manager.")
+                raise ValueError("Supervisor must be a valid Property Supervisor.")
 
             conn.execute(update_query, {
                 "name": name,

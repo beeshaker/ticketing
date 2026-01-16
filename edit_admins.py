@@ -24,8 +24,8 @@ def edit_admins():
     whatsapp_number = st.text_input("WhatsApp Number", admin['whatsapp_number'])
     admin_type = st.selectbox(
     "Admin Type",
-    ["Admin", "Property Manager", "Caretaker", "Super Admin"],
-    index=["Admin", "Property Manager", "Caretaker", "Super Admin"].index(admin['admin_type'])
+    ["Admin", "Property Supervisor", "Caretaker", "Super Admin"],
+    index=["Admin", "Property Supervisor", "Caretaker", "Super Admin"].index(admin['admin_type'])
 )
     property_id = st.text_input("Property ID", admin['property_id'] if admin['property_id'] is not None else "")
 

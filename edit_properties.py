@@ -55,7 +55,7 @@ def edit_properties():
     default_index = values.index(current_supervisor_id) if current_supervisor_id in values else 0
 
     selected_supervisor_label = st.selectbox(
-        "Supervisor (Property Manager)",
+        "Supervisor (Property Supervisor)",
         labels,
         index=default_index,
     )

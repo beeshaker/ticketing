@@ -5,8 +5,6 @@ import pandas as pd
 import bcrypt
 from io import BytesIO
 from sqlalchemy.sql import text
-from streamlit_timeline import timeline
-from streamlit_option_menu import option_menu
 
 from conn import Conn
 from license import LicenseManager
@@ -17,6 +15,9 @@ from edit_admins import edit_admins
 from edit_properties import edit_properties
 from edit_users import edit_user
 from adminsignup import admin_signup
+
+# ✅ you are using option_menu below, so this import must exist
+from streamlit_option_menu import option_menu
 
 
 # -----------------------------------------------------------------------------
@@ -52,6 +53,8 @@ if "filter_property" not in st.session_state:
     st.session_state.filter_property = "All"
 if "filter_unit" not in st.session_state:
     st.session_state.filter_unit = ""
+if "filter_due_bucket" not in st.session_state:
+    st.session_state.filter_due_bucket = "All"
 
 
 # -----------------------------------------------------------------------------
@@ -152,9 +155,6 @@ if selected == "Logout":
 # -----------------------------------------------------------------------------
 # Dashboard
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# Dashboard
-# -----------------------------------------------------------------------------
 elif selected == "Dashboard":
     st.title("📊 Operations CRM Dashboard")
 
@@ -237,9 +237,47 @@ elif selected == "Dashboard":
         st.info("✅ No open tickets found.")
         st.stop()
 
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # ✅ Due date buckets + icons (Upcoming / Today / Overdue / None)
+    # -------------------------------------------------------------------------
+    DUE_COL = "Due_Date"  # change if your column differs
+
+    tickets_df_all[DUE_COL] = pd.to_datetime(tickets_df_all.get(DUE_COL), errors="coerce")
+    tickets_df_all["_due_date_only"] = tickets_df_all[DUE_COL].dt.date
+
+    today = pd.Timestamp.today().date()
+
+    tickets_df_all["_due_bucket"] = "No due date"
+    tickets_df_all.loc[tickets_df_all["_due_date_only"] == today, "_due_bucket"] = "Due today"
+    tickets_df_all.loc[tickets_df_all["_due_date_only"] > today, "_due_bucket"] = "Upcoming"
+    tickets_df_all.loc[tickets_df_all["_due_date_only"] < today, "_due_bucket"] = "Overdue"
+
+    due_upcoming = int((tickets_df_all["_due_bucket"] == "Upcoming").sum())
+    due_today = int((tickets_df_all["_due_bucket"] == "Due today").sum())
+    due_overdue = int((tickets_df_all["_due_bucket"] == "Overdue").sum())
+    due_none = int((tickets_df_all["_due_bucket"] == "No due date").sum())
+
+    ICON_MAP = {
+        "Overdue": "🔴",
+        "Due today": "🟡",
+        "Upcoming": "🟢",
+        "No due date": "⚪",
+    }
+
+    DUE_COLORS = {
+        "Overdue": "background-color: #ffebee; color: #b71c1c;",
+        "Due today": "background-color: #fff8e1; color: #e65100;",
+        "Upcoming": "background-color: #e8f5e9; color: #1b5e20;",
+        "No due date": "background-color: #eceff1; color: #37474f;",
+    }
+
+    def style_due_rows(row):
+        bucket = row.get("_due_bucket", "No due date")
+        return [DUE_COLORS.get(bucket, "")] * len(row)
+
+    # -------------------------------------------------------------------------
     # Stats (based on FULL df)
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     st.markdown(
         """
         <style>
@@ -261,9 +299,10 @@ elif selected == "Dashboard":
           }
         }
 
-        .stat-wrap {display:flex; gap:16px; margin: 10px 0 6px 0;}
+        .stat-wrap {display:flex; gap:16px; margin: 10px 0 6px 0; flex-wrap:wrap;}
         .stat-card{
           flex:1;
+          min-width: 220px;
           padding:18px 18px 14px 18px;
           border-radius:14px;
           background: var(--stat-bg);
@@ -313,9 +352,38 @@ elif selected == "Dashboard":
         unsafe_allow_html=True,
     )
 
-    # -----------------------------------------------------------------------------
+    # ✅ Due stats row (nice at-a-glance)
+    st.markdown(
+        f"""
+        <div class="stat-wrap">
+          <div class="stat-card">
+            <div class="stat-title">Upcoming due</div>
+            <div class="stat-value">{due_upcoming}</div>
+            <div class="stat-sub">After today</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-title">Due today</div>
+            <div class="stat-value">{due_today}</div>
+            <div class="stat-sub">{today.strftime('%Y-%m-%d')}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-title">Overdue</div>
+            <div class="stat-value">{due_overdue}</div>
+            <div class="stat-sub">Past due date</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-title">No due date</div>
+            <div class="stat-value">{due_none}</div>
+            <div class="stat-sub">Unset</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # -------------------------------------------------------------------------
     # Open Tickets + Filters
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     st.subheader("🎟️ Open Tickets")
 
     # (Safety: ensure filter state exists)
@@ -323,8 +391,11 @@ elif selected == "Dashboard":
         st.session_state.filter_property = "All"
     if "filter_unit" not in st.session_state:
         st.session_state.filter_unit = ""
+    if "filter_due_bucket" not in st.session_state:
+        st.session_state.filter_due_bucket = "All"
 
-    f1, f2, f3 = st.columns([1, 1, 0.6])
+    # ✅ 4 filters: property, unit, clear, due-date bucket
+    f1, f2, f3, f4 = st.columns([1, 1, 0.6, 0.9])
 
     with f1:
         prop_vals = sorted([p for p in tickets_df_all["property"].dropna().unique().tolist()])
@@ -350,7 +421,18 @@ elif selected == "Dashboard":
         if st.button("Clear filters", use_container_width=True):
             st.session_state.filter_property = "All"
             st.session_state.filter_unit = ""
+            st.session_state.filter_due_bucket = "All"
             st.rerun()
+
+    with f4:
+        due_filter = st.selectbox(
+            "Due date",
+            ["All", "Upcoming", "Due today", "Overdue", "No due date"],
+            index=["All", "Upcoming", "Due today", "Overdue", "No due date"].index(st.session_state.filter_due_bucket)
+            if st.session_state.filter_due_bucket in ["All", "Upcoming", "Due today", "Overdue", "No due date"]
+            else 0,
+            key="filter_due_bucket",
+        )
 
     # Apply filters
     tickets_df = tickets_df_all.copy()
@@ -364,13 +446,48 @@ elif selected == "Dashboard":
             tickets_df["unit_number"].astype(str).str.lower().str.contains(q, na=False)
         ]
 
+    if due_filter and due_filter != "All":
+        tickets_df = tickets_df[tickets_df["_due_bucket"] == due_filter]
+
     if tickets_df.empty:
         st.warning("No tickets match your filters.")
         st.stop()
 
-    # ---- Table (hide index + hide is_read) ----
+    # -------------------------------------------------------------------------
+    # ✅ Legend (always visible)
+    # -------------------------------------------------------------------------
+    st.markdown(
+        """
+        <div style="display:flex; gap:16px; margin:10px 0 6px 0; flex-wrap:wrap;">
+          <div><span style="background:#ffebee; padding:4px 10px; border-radius:6px;">🔴 Overdue</span></div>
+          <div><span style="background:#fff8e1; padding:4px 10px; border-radius:6px;">🟡 Due today</span></div>
+          <div><span style="background:#e8f5e9; padding:4px 10px; border-radius:6px;">🟢 Upcoming</span></div>
+          <div><span style="background:#eceff1; padding:4px 10px; border-radius:6px;">⚪ No due date</span></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # -------------------------------------------------------------------------
+    # ✅ Table (color-coded rows + hide index + hide is_read)
+    # -------------------------------------------------------------------------
     display_df = tickets_df.drop(columns=["is_read"], errors="ignore")
-    st.dataframe(display_df, width="stretch", hide_index=True)
+
+    # Optional: quick scan column
+    if "_due_bucket" in display_df.columns:
+        display_df.insert(0, "Due", display_df["_due_bucket"].map(ICON_MAP).fillna("⚪"))
+
+    # Optional: keep helper columns hidden from display
+    # (we keep _due_bucket internally for styling, then drop the other helper)
+    display_df = display_df.drop(columns=["_due_date_only"], errors="ignore")
+
+    styled_df = display_df.style.apply(style_due_rows, axis=1)
+
+    st.dataframe(
+        styled_df,
+        use_container_width=True,
+        hide_index=True,
+    )
 
     # ---- Ticket Selection (stable by id) ----
     ticket_ids = tickets_df["id"].tolist()
@@ -424,9 +541,9 @@ elif selected == "Dashboard":
         st.session_state.last_hash = db.get_tickets_hash()
         selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
 
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # ✅ ALWAYS-VISIBLE OVERVIEW (no tabs)
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     st.divider()
     st.markdown(f"### 🎫 Ticket #{ticket_id}")
 
@@ -440,16 +557,16 @@ elif selected == "Dashboard":
         st.write(f"**Status:** {selected_ticket['status']}")
         st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")
 
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # ✅ TABS (Actions first)
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     tab_actions, tab_attachments, tab_activity = st.tabs(
         ["⚙️ Actions", "📎 Attachments", "📜 Activity"]
     )
 
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # ACTIONS TAB
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     with tab_actions:
         st.markdown("### ✅ Update Status")
         new_status = st.selectbox(
@@ -541,9 +658,9 @@ elif selected == "Dashboard":
             st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
             st.rerun()
 
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # ATTACHMENTS TAB (grid)
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     with tab_attachments:
         media_df = db.fetch_ticket_media(ticket_id)
         if media_df is None or media_df.empty:
@@ -588,9 +705,9 @@ elif selected == "Dashboard":
                             use_container_width=True,
                         )
 
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # ACTIVITY TAB (clean feed)
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     with tab_activity:
         history_df = db.fetch_ticket_history(ticket_id)
 
@@ -684,7 +801,7 @@ elif selected == "Send Bulk Message":
 
         st.subheader("📋 Send Status Report")
         report_df = pd.DataFrame(sent_results)
-        st.dataframe(report_df, width="stretch", hide_index=True)
+        st.dataframe(report_df, use_container_width=True, hide_index=True)
 
         csv_data = report_df.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -701,7 +818,7 @@ elif selected == "Admin Reassignment History":
     st.title("📜 Admin Reassignment History")
     reassign_log_df = db.fetch_admin_reassignment_log()
     if reassign_log_df is not None and not reassign_log_df.empty:
-        st.dataframe(reassign_log_df, width="stretch", hide_index=True)
+        st.dataframe(reassign_log_df, use_container_width=True, hide_index=True)
     else:
         st.warning("⚠️ No reassignments have been logged yet.")
 
@@ -752,6 +869,8 @@ elif selected == "Edit/Delete Property":
 elif selected == "Edit/Delete Admin":
     edit_admins()
 
-
+# -----------------------------------------------------------------------------
+# Admin User Creation
+# -----------------------------------------------------------------------------
 elif selected == "Admin User Creation":
-    admin_signup()  
+    admin_signup()

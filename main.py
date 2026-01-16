@@ -805,6 +805,18 @@ elif selected == "Send Bulk Message":
 
         st.subheader("📋 Send Status Report")
         report_df = pd.DataFrame(sent_results)
+        cols = report_df.columns.tolist()
+
+        # Find indices
+        i_status = cols.index("Status")
+        i_whatsapp = cols.index("WhatsApp")
+
+        # Swap their positions
+        cols[i_status], cols[i_whatsapp] = cols[i_whatsapp], cols[i_status]
+
+        # Reorder dataframe
+        report_df = report_df[cols]
+        
         st.dataframe(report_df, use_container_width=True, hide_index=True)
 
         csv_data = report_df.to_csv(index=False).encode("utf-8")

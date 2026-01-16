@@ -84,9 +84,9 @@ class Conn:
     def fetch_open_tickets(self, admin_id=None):
         """Fetch tickets for an admin, including read status."""
         query = """
-        SELECT t.id, u.whatsapp_number, u.name, t.issue_description, t.status, t.created_at, 
-               p.name AS property, u.unit_number, t.category, a.name AS assigned_admin, 
-               t.due_date AS Due_Date, t.is_read
+        SELECT t.id, t.status,  u.name, t.issue_description, t.due_date AS Due_Date,  
+               p.name AS property, u.unit_number, u.whatsapp_number, t.created_at, t.category, a.name AS assigned_admin, 
+               t.is_read
         FROM tickets t
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id

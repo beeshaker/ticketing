@@ -859,7 +859,7 @@ class Conn:
                         a.name AS caretaker,
                         COUNT(*) AS tickets
                     FROM tickets t
-                    LEFT JOIN admins a ON a.id = t.assigned_admin
+                    LEFT JOIN admins_users a ON a.id = t.assigned_admin
                     WHERE t.created_at >= :start_dt
                       AND t.created_at <  :end_dt
                     GROUP BY a.name

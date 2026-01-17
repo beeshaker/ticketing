@@ -195,19 +195,14 @@ class Conn:
     # -------------------- UPDATE TICKET STATUS -------------------- #
     def update_ticket_status(self, ticket_id, new_status):
         """
-        Updates ticket status.
-        - If status = Resolved → sets is_resolved = 1 and resolved_at
-        - If status != Resolved → clears is_resolved and resolved_at
-        - Sends WhatsApp notification to user
+        Updates ticket status and resolved_at (derived from status).
         """
         with self.engine.begin() as conn:
-
             if new_status == "Resolved":
                 conn.execute(
                     text("""
                         UPDATE tickets
                         SET status = :new_status,
-                            is_resolved = 1,
                             resolved_at = NOW()
                         WHERE id = :ticket_id
                     """),
@@ -218,13 +213,13 @@ class Conn:
                     text("""
                         UPDATE tickets
                         SET status = :new_status,
-                            is_resolved = 0,
                             resolved_at = NULL
                         WHERE id = :ticket_id
                     """),
                     {"new_status": new_status, "ticket_id": ticket_id}
                 )
 
+            # Fetch user WhatsApp
             result = conn.execute(
                 text("""
                     SELECT u.whatsapp_number
@@ -235,11 +230,9 @@ class Conn:
                 {"ticket_id": ticket_id}
             ).fetchone()
 
-        # ---- Notify user (outside transaction) ----
         if result:
-            user_whatsapp = result[0]
             self.send_template_notification(
-                to=user_whatsapp,
+                to=result[0],
                 template_name="ticket_status_change",
                 template_parameters=[f"#{ticket_id}", new_status]
             )
@@ -845,6 +838,53 @@ class Conn:
             ).mappings().all()
 
         return pd.DataFrame(rows)
+    
+    def tickets_by_category(self, start_dt, end_dt):
+        """
+        Returns df with columns: category, tickets
+        Used for the Category pie/donut chart.
+        """
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        COALESCE(NULLIF(TRIM(category), ''), 'Unspecified') AS category,
+                        COUNT(*) AS tickets
+                    FROM tickets
+                    WHERE created_at >= :start_dt
+                    AND created_at <  :end_dt
+                    GROUP BY COALESCE(NULLIF(TRIM(category), ''), 'Unspecified')
+                    ORDER BY tickets DESC
+                """),
+                {"start_dt": start_dt, "end_dt": end_dt}
+            ).mappings().all()
+
+        return pd.DataFrame(rows)
+
+
+    def tickets_by_property(self, start_dt, end_dt):
+        """
+        Returns df with columns: property, tickets
+        Used for the Tickets by Property report.
+        """
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        COALESCE(p.name, 'Unassigned') AS property,
+                        COUNT(*) AS tickets
+                    FROM tickets t
+                    LEFT JOIN properties p ON p.id = t.property_id
+                    WHERE t.created_at >= :start_dt
+                    AND t.created_at <  :end_dt
+                    GROUP BY COALESCE(p.name, 'Unassigned')
+                    ORDER BY tickets DESC
+                """),
+                {"start_dt": start_dt, "end_dt": end_dt}
+            ).mappings().all()
+
+        return pd.DataFrame(rows)
+
 
     def caretaker_performance(self, start_dt, end_dt):
         """

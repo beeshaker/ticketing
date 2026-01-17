@@ -15,6 +15,7 @@ from edit_admins import edit_admins
 from edit_properties import edit_properties
 from edit_users import edit_user
 from adminsignup import admin_signup
+from kpi_dashboard import KPIDashboard
 
 # ✅ you are using option_menu below, so this import must exist
 from streamlit_option_menu import option_menu
@@ -113,6 +114,9 @@ elif st.session_state.admin_role == "Super Admin":
 
     menu_options.insert(8, "Admin Reassignment History")
     menu_icons.insert(8, "clock-history")
+
+    menu_options.insert(9, "KPI Dashboard")
+    menu_icons.insert(9, "speedometer2")
 
 with st.sidebar:
     selected = option_menu(
@@ -907,3 +911,6 @@ elif selected == "Edit/Delete Admin":
 # -----------------------------------------------------------------------------
 elif selected == "Admin User Creation":
     admin_signup()
+    
+elif selected == "KPI Dashboard":
+    KPIDashboard()

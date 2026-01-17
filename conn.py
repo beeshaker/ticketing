@@ -195,26 +195,47 @@ class Conn:
     # -------------------- UPDATE TICKET STATUS -------------------- #
     def update_ticket_status(self, ticket_id, new_status):
         """
-        Updates ticket status and notifies user.
-        (No timestamp change here unless you add updated_at in DB.)
+        Updates ticket status.
+        - If status = Resolved → sets is_resolved = 1 and resolved_at
+        - If status != Resolved → clears is_resolved and resolved_at
+        - Sends WhatsApp notification to user
         """
-        with self.engine.connect() as conn:
-            conn.execute(
-                text("UPDATE tickets SET status = :new_status WHERE id = :ticket_id"),
-                {"new_status": new_status, "ticket_id": ticket_id}
-            )
-            conn.commit()
+        with self.engine.begin() as conn:
+
+            if new_status == "Resolved":
+                conn.execute(
+                    text("""
+                        UPDATE tickets
+                        SET status = :new_status,
+                            is_resolved = 1,
+                            resolved_at = NOW()
+                        WHERE id = :ticket_id
+                    """),
+                    {"new_status": new_status, "ticket_id": ticket_id}
+                )
+            else:
+                conn.execute(
+                    text("""
+                        UPDATE tickets
+                        SET status = :new_status,
+                            is_resolved = 0,
+                            resolved_at = NULL
+                        WHERE id = :ticket_id
+                    """),
+                    {"new_status": new_status, "ticket_id": ticket_id}
+                )
 
             result = conn.execute(
                 text("""
-                    SELECT u.whatsapp_number 
-                    FROM users u 
-                    JOIN tickets t ON u.id = t.user_id 
+                    SELECT u.whatsapp_number
+                    FROM users u
+                    JOIN tickets t ON u.id = t.user_id
                     WHERE t.id = :ticket_id
                 """),
                 {"ticket_id": ticket_id}
             ).fetchone()
 
+        # ---- Notify user (outside transaction) ----
         if result:
             user_whatsapp = result[0]
             self.send_template_notification(
@@ -222,6 +243,7 @@ class Conn:
                 template_name="ticket_status_change",
                 template_parameters=[f"#{ticket_id}", new_status]
             )
+
 
     # -------------------- ADD TICKET UPDATE -------------------- #
     def add_ticket_update(self, ticket_id, update_text, admin_name):
@@ -731,3 +753,124 @@ class Conn:
         with self.engine.connect() as conn:
             result = conn.execute(text("SELECT id, name FROM properties"))
             return [dict(row._mapping) for row in result]
+        
+
+    def kpi_summary(self, start_dt, end_dt):
+        """
+        Returns:
+          open_count, closed_count, pct_closed,
+          avg_first_response_seconds,
+          avg_resolution_seconds
+        """
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    WITH base AS (
+                        SELECT
+                            id,
+                            created_at,
+                            status,
+                            resolved_at
+                        FROM tickets
+                        WHERE created_at >= :start_dt
+                          AND created_at <  :end_dt
+                    ),
+                    first_action AS (
+                        SELECT
+                            tu.ticket_id,
+                            MIN(tu.created_at) AS first_response_at
+                        FROM ticket_updates tu
+                        JOIN base b ON b.id = tu.ticket_id
+                        GROUP BY tu.ticket_id
+                    )
+                    SELECT
+                        SUM(CASE WHEN b.status IN ('Open','In Progress') THEN 1 ELSE 0 END) AS open_count,
+                        SUM(CASE WHEN b.status = 'Resolved' THEN 1 ELSE 0 END) AS closed_count,
+
+                        CASE
+                            WHEN COUNT(*) = 0 THEN 0
+                            ELSE ROUND(
+                                (SUM(CASE WHEN b.status = 'Resolved' THEN 1 ELSE 0 END) / COUNT(*)) * 100,
+                                0
+                            )
+                        END AS pct_closed,
+
+                        -- Avg response time: ticket.created_at -> first ticket_update.created_at
+                        AVG(
+                            CASE
+                                WHEN fa.first_response_at IS NULL THEN NULL
+                                ELSE TIMESTAMPDIFF(SECOND, b.created_at, fa.first_response_at)
+                            END
+                        ) AS avg_first_response_seconds,
+
+                        -- Avg resolution time: ticket.created_at -> tickets.resolved_at
+                        AVG(
+                            CASE
+                                WHEN b.resolved_at IS NULL THEN NULL
+                                ELSE TIMESTAMPDIFF(SECOND, b.created_at, b.resolved_at)
+                            END
+                        ) AS avg_resolution_seconds
+                    FROM base b
+                    LEFT JOIN first_action fa ON fa.ticket_id = b.id
+                """),
+                {"start_dt": start_dt, "end_dt": end_dt}
+            ).mappings().first()
+
+        return dict(row) if row else {
+            "open_count": 0,
+            "closed_count": 0,
+            "pct_closed": 0,
+            "avg_first_response_seconds": None,
+            "avg_resolution_seconds": None
+        }
+
+    def tickets_per_day(self, start_dt, end_dt):
+        """
+        Returns df with: day, open_count, closed_count
+        """
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        DATE(created_at) AS day,
+                        SUM(CASE WHEN status IN ('Open','In Progress') THEN 1 ELSE 0 END) AS open_count,
+                        SUM(CASE WHEN status = 'Resolved' THEN 1 ELSE 0 END) AS closed_count
+                    FROM tickets
+                    WHERE created_at >= :start_dt
+                      AND created_at <  :end_dt
+                    GROUP BY DATE(created_at)
+                    ORDER BY day ASC
+                """),
+                {"start_dt": start_dt, "end_dt": end_dt}
+            ).mappings().all()
+
+        return pd.DataFrame(rows)
+
+    def caretaker_performance(self, start_dt, end_dt):
+        """
+        Returns top caretakers by tickets (assigned) within range.
+        Assumes tickets.assigned_admin stores an admin_id.
+        If your tickets.assigned_admin stores a NAME instead, tell me and I’ll adjust.
+        """
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        a.name AS caretaker,
+                        COUNT(*) AS tickets
+                    FROM tickets t
+                    LEFT JOIN admins a ON a.id = t.assigned_admin
+                    WHERE t.created_at >= :start_dt
+                      AND t.created_at <  :end_dt
+                    GROUP BY a.name
+                    ORDER BY tickets DESC
+                    LIMIT 10
+                """),
+                {"start_dt": start_dt, "end_dt": end_dt}
+            ).mappings().all()
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return df
+        df.insert(0, "#", range(1, len(df) + 1))
+        return df

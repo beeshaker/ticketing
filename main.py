@@ -913,4 +913,8 @@ elif selected == "Admin User Creation":
     admin_signup()
     
 elif selected == "KPI Dashboard":
-    KPIDashboard()
+    if st.session_state.get("admin_role") != "Super Admin":
+        st.error("⛔ You do not have permission to access this page.")
+        st.stop()
+
+    KPIDashboard(db).render()

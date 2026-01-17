@@ -259,10 +259,8 @@ elif selected == "Dashboard":
 
     # Overdue
     tickets_df_all.loc[tickets_df_all["days_to_due"] < 0, "_due_bucket"] = "Overdue"
-
     # Due today
     tickets_df_all.loc[tickets_df_all["days_to_due"] == 0, "_due_bucket"] = "Due today"
-
     # Upcoming = within next 3 days (1–3)
     tickets_df_all.loc[
         tickets_df_all["days_to_due"].between(1, 3),
@@ -281,11 +279,12 @@ elif selected == "Dashboard":
         "No due date": "⚪",
     }
 
+    # ✅ Theme-friendly row highlights (no forced text colors)
     DUE_COLORS = {
-        "Overdue": "background-color: #ffebee; color: #b71c1c;",
-        "Due today": "background-color: #fff8e1; color: #e65100;",
-        "Upcoming": "background-color: #e8f5e9; color: #1b5e20;",
-        "No due date": "background-color: #eceff1; color: #37474f;",
+        "Overdue":     "background-color: rgba(244, 67, 54, 0.12);",
+        "Due today":   "background-color: rgba(255, 193, 7, 0.14);",
+        "Upcoming":    "background-color: rgba(76, 175, 80, 0.12);",
+        "No due date": "background-color: rgba(158, 158, 158, 0.10);",
     }
 
     def style_due_rows(row):
@@ -293,27 +292,42 @@ elif selected == "Dashboard":
         return [DUE_COLORS.get(bucket, "")] * len(row)
 
     # -------------------------------------------------------------------------
-    # Stats (based on FULL df)
+    # ✅ THEME-AWARE STATS CSS (fixes light/dark mismatch)
     # -------------------------------------------------------------------------
     st.markdown(
         """
         <style>
-        :root{
-          --stat-bg: rgba(255,255,255,0.65);
+        /* Streamlit theme toggle aware (NOT OS prefers-color-scheme) */
+        .stApp[data-theme="light"],
+        [data-testid="stAppViewContainer"][data-theme="light"],
+        body.streamlit-light {
+          --stat-bg: rgba(255,255,255,0.92);
           --stat-border: rgba(0,0,0,0.12);
-          --stat-title: rgba(0,0,0,0.75);
+          --stat-title: rgba(0,0,0,0.78);
           --stat-value: rgba(0,0,0,0.92);
-          --stat-sub: rgba(0,0,0,0.55);
+          --stat-sub: rgba(0,0,0,0.58);
+          --stat-shadow: 0 8px 22px rgba(0,0,0,0.08);
         }
 
-        @media (prefers-color-scheme: dark) {
-          :root{
-            --stat-bg: rgba(255,255,255,0.06);
-            --stat-border: rgba(255,255,255,0.12);
-            --stat-title: rgba(255,255,255,0.75);
-            --stat-value: rgba(255,255,255,0.95);
-            --stat-sub: rgba(255,255,255,0.55);
-          }
+        .stApp[data-theme="dark"],
+        [data-testid="stAppViewContainer"][data-theme="dark"],
+        body.streamlit-dark {
+          --stat-bg: rgba(255,255,255,0.06);
+          --stat-border: rgba(255,255,255,0.12);
+          --stat-title: rgba(255,255,255,0.80);
+          --stat-value: rgba(255,255,255,0.96);
+          --stat-sub: rgba(255,255,255,0.62);
+          --stat-shadow: 0 10px 26px rgba(0,0,0,0.35);
+        }
+
+        /* Fallback if theme attrs aren't present */
+        :root{
+          --stat-bg: rgba(255,255,255,0.92);
+          --stat-border: rgba(0,0,0,0.12);
+          --stat-title: rgba(0,0,0,0.78);
+          --stat-value: rgba(0,0,0,0.92);
+          --stat-sub: rgba(0,0,0,0.58);
+          --stat-shadow: 0 8px 22px rgba(0,0,0,0.08);
         }
 
         .stat-wrap {display:flex; gap:16px; margin: 10px 0 6px 0; flex-wrap:wrap;}
@@ -324,17 +338,19 @@ elif selected == "Dashboard":
           border-radius:14px;
           background: var(--stat-bg);
           border: 1px solid var(--stat-border);
+          box-shadow: var(--stat-shadow);
           backdrop-filter: blur(6px);
         }
         .stat-title{
           font-size:14px;
           color: var(--stat-title);
           margin-bottom:6px;
-          font-weight:600;
+          font-weight:650;
+          letter-spacing: 0.2px;
         }
         .stat-value{
           font-size:44px;
-          font-weight:800;
+          font-weight:850;
           line-height:1.0;
           color: var(--stat-value);
         }
@@ -343,11 +359,20 @@ elif selected == "Dashboard":
           font-size:12px;
           color: var(--stat-sub);
         }
+
+        /* Make widget labels clearer (dark mode especially) */
+        [data-testid="stWidgetLabel"] > div {
+          opacity: 0.95 !important;
+          font-weight: 600 !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+    # -------------------------------------------------------------------------
+    # Stats (based on FULL df)
+    # -------------------------------------------------------------------------
     open_count_all = int(len(tickets_df_all))
     unread_count_all = int((tickets_df_all["is_read"] == False).sum()) if "is_read" in tickets_df_all.columns else 0
 
@@ -369,7 +394,6 @@ elif selected == "Dashboard":
         unsafe_allow_html=True,
     )
 
-    # ✅ Due stats row (nice at-a-glance)
     st.markdown(
         f"""
         <div class="stat-wrap">
@@ -464,15 +488,15 @@ elif selected == "Dashboard":
         st.stop()
 
     # -------------------------------------------------------------------------
-    # ✅ Legend (always visible)
+    # ✅ Legend (theme-friendly)
     # -------------------------------------------------------------------------
     st.markdown(
         """
-        <div style="display:flex; gap:16px; margin:10px 0 6px 0; flex-wrap:wrap;">
-          <div><span style="background:#ffebee; padding:4px 10px; border-radius:6px;">🔴 Overdue</span></div>
-          <div><span style="background:#fff8e1; padding:4px 10px; border-radius:6px;">🟡 Due today</span></div>
-          <div><span style="background:#e8f5e9; padding:4px 10px; border-radius:6px;">🟢 Upcoming</span></div>
-          <div><span style="background:#eceff1; padding:4px 10px; border-radius:6px;">⚪ No due date</span></div>
+        <div style="display:flex; gap:12px; margin:10px 0 6px 0; flex-wrap:wrap;">
+          <div><span style="background:rgba(244,67,54,0.14); padding:6px 10px; border-radius:10px; font-weight:650;">🔴 Overdue</span></div>
+          <div><span style="background:rgba(255,193,7,0.18); padding:6px 10px; border-radius:10px; font-weight:650;">🟡 Due today</span></div>
+          <div><span style="background:rgba(76,175,80,0.14); padding:6px 10px; border-radius:10px; font-weight:650;">🟢 Upcoming</span></div>
+          <div><span style="background:rgba(158,158,158,0.12); padding:6px 10px; border-radius:10px; font-weight:650;">⚪ No due date</span></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -709,7 +733,7 @@ elif selected == "Dashboard":
                             margin-bottom:10px;
                         ">
                             <div style="font-weight:700;">{f_name}</div>
-                            <div style="opacity:0.8; font-size:12px;">Type: {m_type}</div>
+                            <div style="opacity:0.85; font-size:12px;">Type: {m_type}</div>
                         </div>
                         """,
                         unsafe_allow_html=True,
@@ -802,7 +826,6 @@ elif selected == "Send Bulk Message":
 
             status_text = "✅ Success" if "error" not in response else f"❌ Failed - {response['error']}"
 
-            # ✅ Use the SAME KEYS you want to swap: "status" and "whatsapp_number"
             sent_results.append(
                 {
                     "name": user.get("name", "N/A"),
@@ -830,7 +853,6 @@ elif selected == "Send Bulk Message":
         st.subheader("📋 Send Status Report")
         report_df = pd.DataFrame(sent_results)
 
-        # ✅ Swap ONLY the column order (keep all columns)
         cols = report_df.columns.tolist()
         if "status" in cols and "whatsapp_number" in cols:
             i_status = cols.index("status")
@@ -911,7 +933,10 @@ elif selected == "Edit/Delete Admin":
 # -----------------------------------------------------------------------------
 elif selected == "Admin User Creation":
     admin_signup()
-    
+
+# -----------------------------------------------------------------------------
+# KPI Dashboard
+# -----------------------------------------------------------------------------
 elif selected == "KPI Dashboard":
     if st.session_state.get("admin_role") != "Super Admin":
         st.error("⛔ You do not have permission to access this page.")

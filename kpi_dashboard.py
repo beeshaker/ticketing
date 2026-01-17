@@ -159,30 +159,7 @@ class KPIDashboard:
             unsafe_allow_html=True,
         )
 
-        st.markdown(
-            f"""
-            <div class="kpi-row">
-              <div class="kpi-card">
-                <div class="kpi-title">Unread / New Tickets</div>
-                <div class="kpi-mid">{unread_count}</div>
-                <div class="kpi-sub">Not opened yet</div>
-              </div>
-
-              <div class="kpi-card">
-                <div class="kpi-title">Overdue Tickets</div>
-                <div class="kpi-mid" style="color:#b71c1c;">{overdue_count}</div>
-                <div class="kpi-sub">Past due date</div>
-              </div>
-
-              <div class="kpi-card">
-                <div class="kpi-title">Upcoming Due</div>
-                <div class="kpi-mid" style="color:#1b5e20;">{upcoming_due_count}</div>
-                <div class="kpi-sub">Due in next 3 days</div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        
 
     # -------------------------------------------------------------------------
     # Second Row: Tickets per day + Performance

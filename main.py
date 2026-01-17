@@ -652,10 +652,24 @@ elif selected == "Dashboard":
         st.divider()
 
         st.markdown("### 📅 Set Due Date")
-        current_due = selected_ticket.get("Due_Date")
-        default_due = pd.to_datetime(current_due).date() if current_due else pd.Timestamp.today().date()
 
-        due_date = st.date_input("Select Due Date", value=default_due, key=f"due_date_in_{ticket_id}")
+        current_due = selected_ticket.get("Due_Date")
+
+        # Parse safely
+        parsed_due = pd.to_datetime(current_due, errors="coerce")
+
+        # If NaT/blank/invalid → default to today
+        if pd.isna(parsed_due):
+            default_due = pd.Timestamp.today().date()
+        else:
+            default_due = parsed_due.date()
+
+        due_date = st.date_input(
+            "Select Due Date",
+            value=default_due,
+            key=f"due_date_in_{ticket_id}",
+        )
+
         if st.button("Update Due Date", key=f"btn_due_date_{ticket_id}"):
             db.update_ticket_due_date(ticket_id, due_date)
             st.session_state.tickets_cache = None

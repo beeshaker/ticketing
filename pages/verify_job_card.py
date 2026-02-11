@@ -1,4 +1,4 @@
-# pages/verify_job_card.py  (FULL UPDATED — with main() wrapper for safe import)
+# pages/verify_job_card.py  (UPDATED — Light-mode friendly + still looks ok in dark)
 
 def main():
     import streamlit as st
@@ -7,41 +7,112 @@ def main():
     from conn import Conn
     from job_card_pdf import build_job_card_pdf
 
-    # -----------------------------------------------------------------------------
-    # Page Config & Custom Styling
-    # -----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Page Config
+    # -------------------------------------------------------------------------
     st.set_page_config(page_title="Job Card Verification | Apricot", layout="centered")
 
+    # -------------------------------------------------------------------------
+    # Light-mode friendly CSS (also adapts in dark mode)
+    # -------------------------------------------------------------------------
     st.markdown(
         """
         <style>
+        /* Hide sidebar + Streamlit chrome */
         [data-testid="stSidebar"], header, footer {display:none !important;}
         .block-container {padding-top: 2rem; max-width: 800px;}
 
-        /* Main Card Styling */
-        .main-card {
-            background-color: #f8f9fa;
-            padding: 2rem;
-            border-radius: 12px;
-            border: 1px solid #e9ecef;
-            margin-bottom: 2rem;
+        /* Theme variables */
+        :root{
+            --card-bg: #ffffff;
+            --card-border: rgba(15, 23, 42, 0.12);
+            --text: #0f172a;
+            --muted: rgba(15, 23, 42, 0.68);
+            --soft: rgba(15, 23, 42, 0.06);
+            --shadow: 0 10px 28px rgba(2, 6, 23, 0.08);
+
+            --badge-bg: rgba(2, 132, 199, 0.10);
+            --badge-text: #075985;
+
+            --success-bg: rgba(34, 197, 94, 0.10);
+            --success-border: rgba(34, 197, 94, 0.35);
+
+            --warn-bg: rgba(245, 158, 11, 0.12);
+            --warn-border: rgba(245, 158, 11, 0.38);
         }
 
-        /* Status Badge Styling */
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
+        /* Dark mode overrides (keeps it readable if user switches) */
+        @media (prefers-color-scheme: dark) {
+            :root{
+                --card-bg: rgba(255,255,255,0.06);
+                --card-border: rgba(255,255,255,0.14);
+                --text: rgba(255,255,255,0.92);
+                --muted: rgba(255,255,255,0.62);
+                --soft: rgba(255,255,255,0.06);
+                --shadow: 0 10px 28px rgba(0,0,0,0.35);
+
+                --badge-bg: rgba(56, 189, 248, 0.14);
+                --badge-text: rgba(224, 242, 254, 0.92);
+
+                --success-bg: rgba(34, 197, 94, 0.12);
+                --success-border: rgba(34, 197, 94, 0.35);
+
+                --warn-bg: rgba(245, 158, 11, 0.14);
+                --warn-border: rgba(245, 158, 11, 0.40);
+            }
+        }
+
+        /* Card */
+        .ap-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 18px 18px 14px 18px;
+            box-shadow: var(--shadow);
+        }
+
+        .ap-muted { color: var(--muted); }
+
+        /* Badge */
+        .ap-badge {
+            display:inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.82rem;
+            font-weight: 700;
             text-transform: uppercase;
-            background-color: #e2e8f0;
-            color: #475569;
+            background: var(--badge-bg);
+            color: var(--badge-text);
+            border: 1px solid rgba(2,132,199,0.20);
         }
 
+        /* Buttons */
         .stButton button {
-            border-radius: 8px;
-            font-weight: 600;
+            border-radius: 10px !important;
+            font-weight: 700 !important;
         }
+
+        /* Metrics look a bit cleaner */
+        [data-testid="stMetricValue"] { color: var(--text) !important; }
+        [data-testid="stMetricLabel"] { color: var(--muted) !important; }
+
+        /* Make captions readable in light mode */
+        .stCaption { color: var(--muted) !important; }
+
+        /* Inputs */
+        input, textarea {
+            border-radius: 10px !important;
+        }
+
+        /* Expander header contrast */
+        [data-testid="stExpander"] {
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+            overflow: hidden;
+        }
+
+        /* Divider spacing */
+        hr { margin: 1rem 0 !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -55,15 +126,6 @@ def main():
     def _safe(v):
         return "—" if v is None or str(v).strip() == "" else str(v)
 
-    def _build_public_verify_url(jc_id_int: int, token: str) -> str:
-        """
-        Build the EXACT same URL you share on WhatsApp.
-        Use query-param router (most reliable on Streamlit Cloud).
-        """
-        base = st.secrets.get("PUBLIC_BASE_URL", "https://ticketingapricot.streamlit.app").rstrip("/")
-        return f"{base}/?page=verify_job_card&id={jc_id_int}&t={token}"
-
-    
     # -------------------------
     # Data Loading & Logic
     # -------------------------
@@ -86,46 +148,42 @@ def main():
         st.error("### ❌ Record Not Found\nThis job card may have been removed or the link has expired.")
         st.stop()
 
-   
-
     # -------------------------
     # UI Header
     # -------------------------
-    col1, col2 = st.columns([1, 2])
-    with col1:
+    top_l, top_r = st.columns([1, 2])
+    with top_l:
         try:
             st.image("logo1.png", width=140)
         except Exception:
             st.subheader("Apricot")
-    with col2:
-        st.markdown("<div style='text-align: right; color: gray;'>Verification Portal</div>", unsafe_allow_html=True)
+    with top_r:
+        st.markdown("<div class='ap-muted' style='text-align:right;'>Verification Portal</div>", unsafe_allow_html=True)
 
     st.title("Job Card Verification")
     st.divider()
 
-   
-    st.markdown("---")
-
     # -------------------------
-    # PUBLIC SECTION (Always Visible)
+    # PUBLIC SECTION (Always Visible) — in a light card
     # -------------------------
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.caption("Job Card ID")
-        st.markdown(f"**#{jc.get('id')}**")
-    with c2:
-        st.caption("Current Status")
-        status = _safe(jc.get("status"))
-        st.markdown(f"**{status}**")
-    with c3:
-        st.caption("Ticket Reference")
-        ticket_ref = jc.get("ticket_id")
-        st.markdown(f"**#{ticket_ref}**" if ticket_ref else "**Standalone**")
-
-    st.markdown("---")
-
-    # Main Property Info
     with st.container():
+        st.markdown("<div class='ap-card'>", unsafe_allow_html=True)
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.caption("Job Card ID")
+            st.markdown(f"**#{jc.get('id')}**")
+        with c2:
+            st.caption("Current Status")
+            status = _safe(jc.get("status"))
+            st.markdown(f"<span class='ap-badge'>{status}</span>", unsafe_allow_html=True)
+        with c3:
+            st.caption("Ticket Reference")
+            ticket_ref = jc.get("ticket_id")
+            st.markdown(f"**#{ticket_ref}**" if ticket_ref else "**Standalone**")
+
+        st.markdown("<hr/>", unsafe_allow_html=True)
+
         col_left, col_right = st.columns(2)
         with col_left:
             st.markdown("##### 📍 Location")
@@ -135,6 +193,8 @@ def main():
         with col_right:
             st.markdown("##### 📝 Scope of Work")
             st.write(_safe(jc.get("description")))
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # -------------------------
     # SECURITY GATE
@@ -176,10 +236,11 @@ def main():
     if signoff:
         st.markdown(
             f"""
-            <div style="background-color: #f0fff4; padding: 15px; border-radius: 8px; border-left: 5px solid #38a169;">
-                <strong>Signed by:</strong> {_safe(signoff.get('signed_by_name'))} ({_safe(signoff.get('signed_by_role'))})<br>
-                <strong>Date:</strong> {_safe(signoff.get('signed_at'))}<br>
-                <strong>Notes:</strong> {_safe(signoff.get('signoff_notes'))}
+            <div class="ap-card" style="border-left:6px solid rgba(34, 197, 94, 0.65);">
+                <div style="font-weight:800; margin-bottom:6px;">Signed ✅</div>
+                <div><b>Signed by:</b> {_safe(signoff.get('signed_by_name'))} ({_safe(signoff.get('signed_by_role'))})</div>
+                <div><b>Date:</b> {_safe(signoff.get('signed_at'))}</div>
+                <div><b>Notes:</b> {_safe(signoff.get('signoff_notes'))}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -225,12 +286,18 @@ def main():
             for _, r in media_df.iterrows()
         ]
 
+    # IMPORTANT: pass the public URL so the QR appears on the PDF (job_card_pdf.py)
+    # Use the exact WhatsApp link format you send.
+    base = st.secrets.get("PUBLIC_BASE_URL", "https://ticketingapricot.streamlit.app").rstrip("/")
+    public_url = f"{base}/?page=verify_job_card&id={jc_id_int}&t={token}"
+
     pdf_bytes = build_job_card_pdf(
         job_card=jc,
         signoff=signoff,
         attachments=attachments_list,
         brand_title="Apricot Property Solutions",
         logo_path="logo1.png",
+        public_verify_url=public_url,  # ✅ QR ON PDF
     )
 
     st.download_button(
@@ -244,7 +311,5 @@ def main():
     )
 
 
-
-# Allow running directly (optional)
 if __name__ == "__main__":
     main()

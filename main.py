@@ -5,7 +5,10 @@ import pandas as pd
 import bcrypt
 from io import BytesIO
 from sqlalchemy.sql import text
+
 from job_cards import job_cards_page
+from job_card_pdf import build_job_card_pdf  # ✅ needed for PDF export
+
 from conn import Conn
 from license import LicenseManager
 from login import login
@@ -17,7 +20,6 @@ from edit_users import edit_user
 from adminsignup import admin_signup
 from kpi_dashboard import KPIDashboard
 
-# ✅ you are using option_menu below, so this import must exist
 from streamlit_option_menu import option_menu
 
 
@@ -50,12 +52,9 @@ if "selected_ticket_id" not in st.session_state:
     st.session_state.selected_ticket_id = None
 
 # Filter UI state (so clearing goes back to normal)
-if "filter_property" not in st.session_state:
-    st.session_state.filter_property = "All"
-if "filter_unit" not in st.session_state:
-    st.session_state.filter_unit = ""
-if "filter_due_bucket" not in st.session_state:
-    st.session_state.filter_due_bucket = "All"
+st.session_state.setdefault("filter_property", "All")
+st.session_state.setdefault("filter_unit", "")
+st.session_state.setdefault("filter_due_bucket", "All")
 
 
 # -----------------------------------------------------------------------------
@@ -74,17 +73,12 @@ if not st.session_state.authenticated:
 # -----------------------------------------------------------------------------
 # Sidebar Menu
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# Sidebar Menu
-# -----------------------------------------------------------------------------
 st.sidebar.write("Current role:", st.session_state.get("admin_role", ""))
 
 menu_options = ["Dashboard", "Create Ticket", "Logout"]
 menu_icons = ["bar-chart", "file-earmark-plus", "box-arrow-right"]
 
-# -----------------------------------------------------------------------------
-# Role-based menu injection (stable ordering, no fragile indexes)
-# -----------------------------------------------------------------------------
+# Role-based menu injection (stable ordering)
 if st.session_state.admin_role == "Admin":
     role_items = [
         ("Admin User Creation", "person-gear"),
@@ -92,8 +86,6 @@ if st.session_state.admin_role == "Admin":
         ("Create Property", "building"),
         ("Job Cards", "file-text"),
     ]
-
-    # Insert all role items directly after "Dashboard"
     for label, icon in reversed(role_items):
         menu_options.insert(1, label)
         menu_icons.insert(1, icon)
@@ -111,8 +103,6 @@ elif st.session_state.admin_role == "Super Admin":
         ("KPI Dashboard", "speedometer2"),
         ("Job Cards", "file-text"),
     ]
-
-    # Insert all role items directly after "Dashboard"
     for label, icon in reversed(role_items):
         menu_options.insert(1, label)
         menu_icons.insert(1, icon)
@@ -141,8 +131,9 @@ with st.sidebar:
                 "font-weight": "bold",
             },
         },
-        key="main_sidebar_menu",  # ✅ prevents duplicate component id issues
+        key="main_sidebar_menu",
     )
+
 
 # -----------------------------------------------------------------------------
 # Logout
@@ -154,6 +145,7 @@ if selected == "Logout":
     st.session_state.admin_role = ""
     st.success("Logged out successfully.")
     st.rerun()
+
 
 # -----------------------------------------------------------------------------
 # Dashboard
@@ -170,7 +162,6 @@ elif selected == "Dashboard":
         def ticket_watcher():
             current_hash = db.get_tickets_hash()
 
-            # Init
             if st.session_state.last_hash is None:
                 st.session_state.last_hash = current_hash
                 try:
@@ -179,18 +170,16 @@ elif selected == "Dashboard":
                     st.session_state.last_max_id = 0
                 return
 
-            # Only act when hash changes
             if current_hash != st.session_state.last_hash:
                 try:
                     new_max_id = int(str(current_hash).split("-")[1])
                 except Exception:
                     new_max_id = st.session_state.last_max_id
 
-                # NEW ticket detected (max id increased)
                 if new_max_id > st.session_state.last_max_id:
                     st.session_state.new_ticket_flag = True
                     st.session_state.new_ticket_msg = f"🔔 New ticket received! Latest Ticket ID: #{new_max_id}"
-                    st.session_state.tickets_cache = None  # refresh data next render
+                    st.session_state.tickets_cache = None
 
                     st.session_state.last_max_id = new_max_id
                     st.session_state.last_hash = current_hash
@@ -198,7 +187,6 @@ elif selected == "Dashboard":
                     st.toast("🔔 New Ticket Received!", icon="🎫")
                     st.rerun()
 
-                # hash changed but not a new ticket (status edits, read marks, etc.)
                 st.session_state.last_hash = current_hash
 
         ticket_watcher()
@@ -216,7 +204,6 @@ elif selected == "Dashboard":
     # ---- SMART DATA FETCHING ----
     current_hash = db.get_tickets_hash()
 
-    # Initialize hash tracking if needed
     if st.session_state.last_hash is None:
         st.session_state.last_hash = current_hash
         st.session_state.tickets_cache = None
@@ -225,7 +212,6 @@ elif selected == "Dashboard":
         except Exception:
             st.session_state.last_max_id = 0
 
-    # Only hit DB if cache empty OR hash changed
     if st.session_state.tickets_cache is None or current_hash != st.session_state.last_hash:
         if st.session_state.admin_role in ("Admin", "Super Admin"):
             st.session_state.tickets_cache = db.fetch_tickets("All")
@@ -241,10 +227,9 @@ elif selected == "Dashboard":
         st.stop()
 
     # -------------------------------------------------------------------------
-    # ✅ Due date buckets + icons (Upcoming / Today / Overdue / None)
+    # Due date buckets
     # -------------------------------------------------------------------------
-    DUE_COL = "Due_Date"  # change if your column differs
-
+    DUE_COL = "Due_Date"
     tickets_df_all[DUE_COL] = pd.to_datetime(tickets_df_all.get(DUE_COL), errors="coerce")
     tickets_df_all["_due_date_only"] = tickets_df_all[DUE_COL].dt.date
 
@@ -255,34 +240,16 @@ elif selected == "Dashboard":
     )
 
     tickets_df_all["_due_bucket"] = "No due date"
-
-    # Overdue
     tickets_df_all.loc[tickets_df_all["days_to_due"] < 0, "_due_bucket"] = "Overdue"
-    # Due today
     tickets_df_all.loc[tickets_df_all["days_to_due"] == 0, "_due_bucket"] = "Due today"
-    # Upcoming = within next 3 days (1–3)
-    tickets_df_all.loc[
-        tickets_df_all["days_to_due"].between(1, 3),
-        "_due_bucket"
-    ] = "Upcoming"
+    tickets_df_all.loc[tickets_df_all["days_to_due"].between(1, 3), "_due_bucket"] = "Upcoming"
 
-    due_upcoming = int((tickets_df_all["_due_bucket"] == "Upcoming").sum())
-    due_today = int((tickets_df_all["_due_bucket"] == "Due today").sum())
-    due_overdue = int((tickets_df_all["_due_bucket"] == "Overdue").sum())
-    due_none = int((tickets_df_all["_due_bucket"] == "No due date").sum())
+    ICON_MAP = {"Overdue": "🔴", "Due today": "🟡", "Upcoming": "🟢", "No due date": "⚪"}
 
-    ICON_MAP = {
-        "Overdue": "🔴",
-        "Due today": "🟡",
-        "Upcoming": "🟢",
-        "No due date": "⚪",
-    }
-
-    # ✅ Theme-friendly row highlights (no forced text colors)
     DUE_COLORS = {
-        "Overdue":     "background-color: rgba(244, 67, 54, 0.12);",
-        "Due today":   "background-color: rgba(255, 193, 7, 0.14);",
-        "Upcoming":    "background-color: rgba(76, 175, 80, 0.12);",
+        "Overdue": "background-color: rgba(244, 67, 54, 0.12);",
+        "Due today": "background-color: rgba(255, 193, 7, 0.14);",
+        "Upcoming": "background-color: rgba(76, 175, 80, 0.12);",
         "No due date": "background-color: rgba(158, 158, 158, 0.10);",
     }
 
@@ -291,12 +258,11 @@ elif selected == "Dashboard":
         return [DUE_COLORS.get(bucket, "")] * len(row)
 
     # -------------------------------------------------------------------------
-    # ✅ THEME-AWARE STATS CSS (fixes light/dark mismatch)
+    # Stats CSS (theme-aware)
     # -------------------------------------------------------------------------
     st.markdown(
         """
         <style>
-        /* Streamlit theme toggle aware (NOT OS prefers-color-scheme) */
         .stApp[data-theme="light"],
         [data-testid="stAppViewContainer"][data-theme="light"],
         body.streamlit-light {
@@ -319,7 +285,6 @@ elif selected == "Dashboard":
           --stat-shadow: 0 10px 26px rgba(0,0,0,0.35);
         }
 
-        /* Fallback if theme attrs aren't present */
         :root{
           --stat-bg: rgba(255,255,255,0.92);
           --stat-border: rgba(0,0,0,0.12);
@@ -331,8 +296,7 @@ elif selected == "Dashboard":
 
         .stat-wrap {display:flex; gap:16px; margin: 10px 0 6px 0; flex-wrap:wrap;}
         .stat-card{
-          flex:1;
-          min-width: 220px;
+          flex:1; min-width: 220px;
           padding:18px 18px 14px 18px;
           border-radius:14px;
           background: var(--stat-bg);
@@ -340,40 +304,21 @@ elif selected == "Dashboard":
           box-shadow: var(--stat-shadow);
           backdrop-filter: blur(6px);
         }
-        .stat-title{
-          font-size:14px;
-          color: var(--stat-title);
-          margin-bottom:6px;
-          font-weight:650;
-          letter-spacing: 0.2px;
-        }
-        .stat-value{
-          font-size:44px;
-          font-weight:850;
-          line-height:1.0;
-          color: var(--stat-value);
-        }
-        .stat-sub{
-          margin-top:10px;
-          font-size:12px;
-          color: var(--stat-sub);
-        }
-
-        /* Make widget labels clearer (dark mode especially) */
-        [data-testid="stWidgetLabel"] > div {
-          opacity: 0.95 !important;
-          font-weight: 600 !important;
-        }
+        .stat-title{font-size:14px;color: var(--stat-title);margin-bottom:6px;font-weight:650;}
+        .stat-value{font-size:44px;font-weight:850;line-height:1.0;color: var(--stat-value);}
+        .stat-sub{margin-top:10px;font-size:12px;color: var(--stat-sub);}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # -------------------------------------------------------------------------
-    # Stats (based on FULL df)
-    # -------------------------------------------------------------------------
     open_count_all = int(len(tickets_df_all))
     unread_count_all = int((tickets_df_all["is_read"] == False).sum()) if "is_read" in tickets_df_all.columns else 0
+
+    due_upcoming = int((tickets_df_all["_due_bucket"] == "Upcoming").sum())
+    due_today = int((tickets_df_all["_due_bucket"] == "Due today").sum())
+    due_overdue = int((tickets_df_all["_due_bucket"] == "Overdue").sum())
+    due_none = int((tickets_df_all["_due_bucket"] == "No due date").sum())
 
     st.markdown(
         f"""
@@ -431,7 +376,6 @@ elif selected == "Dashboard":
         st.session_state["filter_unit"] = ""
         st.session_state["filter_due_bucket"] = "All"
 
-    # ✅ 4 filters: property, unit, clear, due-date bucket
     f1, f2, f3, f4 = st.columns([1, 1, 0.6, 0.9])
 
     with f1:
@@ -455,7 +399,7 @@ elif selected == "Dashboard":
         )
 
     with f3:
-        st.button("Clear filters", use_container_width=True, on_click=clear_filters)
+        st.button("Clear filters", width="stretch", on_click=clear_filters)
 
     with f4:
         due_filter = st.selectbox(
@@ -467,7 +411,6 @@ elif selected == "Dashboard":
             key="filter_due_bucket",
         )
 
-    # Apply filters
     tickets_df = tickets_df_all.copy()
 
     if selected_prop and selected_prop != "All":
@@ -475,9 +418,7 @@ elif selected == "Dashboard":
 
     if unit_q.strip():
         q = unit_q.strip().lower()
-        tickets_df = tickets_df[
-            tickets_df["unit_number"].astype(str).str.lower().str.contains(q, na=False)
-        ]
+        tickets_df = tickets_df[tickets_df["unit_number"].astype(str).str.lower().str.contains(q, na=False)]
 
     if due_filter and due_filter != "All":
         tickets_df = tickets_df[tickets_df["_due_bucket"] == due_filter]
@@ -486,42 +427,16 @@ elif selected == "Dashboard":
         st.warning("No tickets match your filters.")
         st.stop()
 
-    # -------------------------------------------------------------------------
-    # ✅ Legend (theme-friendly)
-    # -------------------------------------------------------------------------
-    st.markdown(
-        """
-        <div style="display:flex; gap:12px; margin:10px 0 6px 0; flex-wrap:wrap;">
-          <div><span style="background:rgba(244,67,54,0.14); padding:6px 10px; border-radius:10px; font-weight:650;">🔴 Overdue</span></div>
-          <div><span style="background:rgba(255,193,7,0.18); padding:6px 10px; border-radius:10px; font-weight:650;">🟡 Due today</span></div>
-          <div><span style="background:rgba(76,175,80,0.14); padding:6px 10px; border-radius:10px; font-weight:650;">🟢 Upcoming</span></div>
-          <div><span style="background:rgba(158,158,158,0.12); padding:6px 10px; border-radius:10px; font-weight:650;">⚪ No due date</span></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # -------------------------------------------------------------------------
-    # ✅ Table (color-coded rows + hide index + hide is_read)
-    # -------------------------------------------------------------------------
     display_df = tickets_df.drop(columns=["is_read"], errors="ignore")
-
-    # Optional: quick scan column
     if "_due_bucket" in display_df.columns:
         display_df.insert(0, "Due", display_df["_due_bucket"].map(ICON_MAP).fillna("⚪"))
-
-    # Optional: keep helper columns hidden from display
     display_df = display_df.drop(columns=["_due_date_only"], errors="ignore")
 
     styled_df = display_df.style.apply(style_due_rows, axis=1)
 
-    st.dataframe(
-        styled_df,
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.dataframe(styled_df, width="stretch", hide_index=True)
 
-    # ---- Ticket Selection (stable by id) ----
+    # ---- Ticket Selection ----
     ticket_ids = tickets_df["id"].tolist()
 
     def ticket_format_func(tid: int) -> str:
@@ -531,10 +446,7 @@ elif selected == "Dashboard":
         desc_snippet = str(row.get("issue_description", "No Description"))[:40]
         return f"{status_icon} | #{tid} - {desc_snippet}..."
 
-    if st.session_state.selected_ticket_id is None:
-        st.session_state.selected_ticket_id = ticket_ids[0]
-
-    if st.session_state.selected_ticket_id not in ticket_ids:
+    if st.session_state.selected_ticket_id is None or st.session_state.selected_ticket_id not in ticket_ids:
         st.session_state.selected_ticket_id = ticket_ids[0]
 
     ticket_id = st.selectbox(
@@ -547,35 +459,24 @@ elif selected == "Dashboard":
     st.session_state.selected_ticket_id = ticket_id
     selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
 
-    # Clear new ticket banner when user is viewing
     st.session_state.new_ticket_flag = False
     st.session_state.new_ticket_msg = ""
 
-    # ---- Auto-mark as read (NO st.rerun => fixes double refresh) ----
+    # Mark as read (no rerun)
     if "is_read" in tickets_df.columns and not bool(selected_ticket.get("is_read", True)):
         db.mark_ticket_as_read(ticket_id)
-
-        # Update filtered df in-memory
         try:
             tickets_df.loc[tickets_df["id"] == ticket_id, "is_read"] = True
-
-            # Update full cache too
-            try:
-                full_df = st.session_state.tickets_cache
-                if isinstance(full_df, pd.DataFrame) and "is_read" in full_df.columns:
-                    full_df.loc[full_df["id"] == ticket_id, "is_read"] = True
-                    st.session_state.tickets_cache = full_df
-            except Exception:
-                pass
+            full_df = st.session_state.tickets_cache
+            if isinstance(full_df, pd.DataFrame) and "is_read" in full_df.columns:
+                full_df.loc[full_df["id"] == ticket_id, "is_read"] = True
+                st.session_state.tickets_cache = full_df
         except Exception:
             st.session_state.tickets_cache = None
 
         st.session_state.last_hash = db.get_tickets_hash()
         selected_ticket = tickets_df[tickets_df["id"] == ticket_id].iloc[0]
 
-    # -------------------------------------------------------------------------
-    # ✅ ALWAYS-VISIBLE OVERVIEW (no tabs)
-    # -------------------------------------------------------------------------
     st.divider()
     st.markdown(f"### 🎫 Ticket #{ticket_id}")
 
@@ -589,15 +490,10 @@ elif selected == "Dashboard":
         st.write(f"**Status:** {selected_ticket['status']}")
         st.write(f"**Assigned Admin:** {selected_ticket['assigned_admin']}")
 
-    # -------------------------------------------------------------------------
-    # ✅ TABS (Actions first)
-    # -------------------------------------------------------------------------
-    tab_actions, tab_attachments, tab_activity = st.tabs(
-        ["⚙️ Actions", "📎 Attachments", "📜 Activity"]
-    )
+    tab_actions, tab_attachments, tab_activity = st.tabs(["⚙️ Actions", "📎 Attachments", "📜 Activity"])
 
     # -------------------------------------------------------------------------
-    # ACTIONS TAB
+    # ACTIONS
     # -------------------------------------------------------------------------
     with tab_actions:
         st.markdown("### ✅ Update Status")
@@ -607,7 +503,7 @@ elif selected == "Dashboard":
             index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]),
             key=f"status_select_{ticket_id}",
         )
-        if st.button("Update Status", key=f"btn_update_status_{ticket_id}"):
+        if st.button("Update Status", key=f"btn_update_status_{ticket_id}", width="stretch"):
             db.update_ticket_status(ticket_id, new_status)
             st.session_state.tickets_cache = None
             st.session_state.last_hash = db.get_tickets_hash()
@@ -618,7 +514,7 @@ elif selected == "Dashboard":
 
         st.markdown("### ✍️ Add Ticket Update")
         update_text = st.text_area("Update text", key=f"update_text_{ticket_id}")
-        if st.button("Submit Update", key=f"btn_submit_update_{ticket_id}"):
+        if st.button("Submit Update", key=f"btn_submit_update_{ticket_id}", width="stretch"):
             if not update_text.strip():
                 st.error("⚠️ Please provide update text.")
             else:
@@ -654,7 +550,7 @@ elif selected == "Dashboard":
                 )
                 reassign_reason = st.text_area("Reason for Reassignment", key=f"reassign_reason_{ticket_id}")
 
-                if st.button("Reassign Ticket", key=f"btn_reassign_{ticket_id}"):
+                if st.button("Reassign Ticket", key=f"btn_reassign_{ticket_id}", width="stretch"):
                     if not reassign_reason.strip():
                         st.error("⚠️ Please provide a reason.")
                     elif current_assigned_id is None:
@@ -681,183 +577,259 @@ elif selected == "Dashboard":
         st.markdown("### 📅 Set Due Date")
 
         current_due = selected_ticket.get("Due_Date")
-
-        # Parse safely
         parsed_due = pd.to_datetime(current_due, errors="coerce")
+        default_due = pd.Timestamp.today().date() if pd.isna(parsed_due) else parsed_due.date()
 
-        # If NaT/blank/invalid → default to today
-        if pd.isna(parsed_due):
-            default_due = pd.Timestamp.today().date()
-        else:
-            default_due = parsed_due.date()
+        due_date = st.date_input("Select Due Date", value=default_due, key=f"due_date_in_{ticket_id}")
 
-        due_date = st.date_input(
-            "Select Due Date",
-            value=default_due,
-            key=f"due_date_in_{ticket_id}",
-        )
-
-        if st.button("Update Due Date", key=f"btn_due_date_{ticket_id}"):
+        if st.button("Update Due Date", key=f"btn_due_date_{ticket_id}", width="stretch"):
             db.update_ticket_due_date(ticket_id, due_date)
             st.session_state.tickets_cache = None
             st.session_state.last_hash = db.get_tickets_hash()
             st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
             st.rerun()
 
-
+        # ---------------------------------------------------------------------
+        # JOB CARD (INLINE inside Actions tab)
+        # ---------------------------------------------------------------------
         st.divider()
-    st.markdown("### 🧾 Job Card")
+        st.markdown("### 🧾 Job Card")
 
-    jc = db.get_job_card_by_ticket(ticket_id)
+        jc = db.get_job_card_by_ticket(ticket_id)
 
-    if not jc:
-        st.info("No job card linked to this ticket yet.")
+        JOB_STATUS_LIST = ["Open", "In Progress", "Completed", "Signed Off", "Cancelled"]
 
-        title = st.text_input("Job card title (optional)", key=f"jc_title_{ticket_id}")
-        est_cost = st.number_input("Estimated cost (optional)", min_value=0.0, step=100.0, key=f"jc_est_{ticket_id}")
-        copy_media = st.checkbox("Copy ticket attachments", value=True, key=f"jc_copy_{ticket_id}")
+        if not jc:
+            st.info("No job card linked to this ticket yet.")
 
-        if st.button("Create Job Card from this Ticket", key=f"create_jc_{ticket_id}"):
-            jc_id = db.create_job_card_from_ticket(
-                ticket_id=ticket_id,
-                created_by_admin_id=st.session_state.get("admin_id"),
-                assigned_admin_id=None,
-                title=title.strip() if title.strip() else None,
-                estimated_cost=float(est_cost) if est_cost > 0 else None,
-                copy_media=copy_media,
-            )
-            st.success(f"✅ Created Job Card #{jc_id}")
-            st.session_state["open_job_card_id"] = int(jc_id)
-            st.rerun()
+            title = st.text_input("Job card title (optional)", key=f"jc_title_{ticket_id}")
+            est_cost = st.number_input("Estimated cost (optional)", min_value=0.0, step=100.0, key=f"jc_est_{ticket_id}")
+            copy_media = st.checkbox("Copy ticket attachments", value=True, key=f"jc_copy_{ticket_id}")
 
-    else:
-        jc_id = int(jc["id"])
-        st.success(f"✅ Job Card linked: #{jc_id}")
-
-        # --------------------------
-        # Editable fields (INLINE)
-        # --------------------------
-        colA, colB = st.columns([1.2, 0.8])
-
-        with colA:
-            jc_title = st.text_input("Title", value=jc.get("title") or "", key=f"edit_jc_title_{jc_id}")
-
-            # Ticket description is copied, but allow editing here too
-            jc_desc = st.text_area("Description", value=jc.get("description") or "", height=100, key=f"edit_jc_desc_{jc_id}")
-
-            jc_acts = st.text_area("Activities / Work Log", value=jc.get("activities") or "", height=160, key=f"edit_jc_acts_{jc_id}")
-
-        with colB:
-            jc_status = st.selectbox(
-                "Job Card Status",
-                ["Draft", "In Progress", "Completed", "Signed Off"],
-                index=["Draft", "In Progress", "Completed", "Signed Off"].index(jc.get("status") or "Draft"),
-                key=f"edit_jc_status_{jc_id}",
-            )
-
-            est_cost_val = st.number_input(
-                "Estimated cost",
-                min_value=0.0,
-                step=100.0,
-                value=float(jc.get("estimated_cost") or 0.0),
-                key=f"edit_jc_est_{jc_id}",
-            )
-
-            act_cost_val = st.number_input(
-                "Actual cost",
-                min_value=0.0,
-                step=100.0,
-                value=float(jc.get("actual_cost") or 0.0),
-                key=f"edit_jc_act_{jc_id}",
-            )
-
-            # Optional assignment edit (admin/caretaker)
-            admin_users = db.fetch_admin_users()
-            admin_map = {0: "— Unassigned —"}
-            admin_map.update({int(a["id"]): a["name"] for a in admin_users})
-
-            current_assigned = int(jc.get("assigned_admin_id") or 0)
-            if current_assigned not in admin_map:
-                current_assigned = 0
-
-            assigned_admin_id = st.selectbox(
-                "Assigned to",
-                options=list(admin_map.keys()),
-                index=list(admin_map.keys()).index(current_assigned),
-                format_func=lambda x: admin_map[x],
-                key=f"edit_jc_assign_{jc_id}",
-            )
-
-        csave, copen = st.columns([1, 1])
-        with csave:
-            if st.button("💾 Save Job Card Changes", use_container_width=True, key=f"save_jc_{jc_id}"):
-                db.update_job_card(
-                    job_card_id=jc_id,
-                    title=jc_title.strip() or None,
-                    description=jc_desc.strip() or None,
-                    activities=jc_acts.strip() or None,
-                    status=jc_status,
-                    estimated_cost=float(est_cost_val) if est_cost_val > 0 else None,
-                    actual_cost=float(act_cost_val) if act_cost_val > 0 else None,
-                    assigned_admin_id=None if assigned_admin_id == 0 else int(assigned_admin_id),
+            if st.button("Create Job Card from this Ticket", key=f"create_jc_{ticket_id}", width="stretch"):
+                jc_id = db.create_job_card_from_ticket(
+                    ticket_id=ticket_id,
+                    created_by_admin_id=st.session_state.get("admin_id"),
+                    assigned_admin_id=None,
+                    title=title.strip() if title.strip() else None,
+                    estimated_cost=float(est_cost) if est_cost > 0 else None,
+                    copy_media=copy_media,
                 )
-                st.success("✅ Job card updated.")
-                st.session_state.tickets_cache = None
+                st.success(f"✅ Created Job Card #{jc_id}")
+                st.session_state["open_job_card_id"] = int(jc_id)
                 st.rerun()
 
-        with copen:
-            if st.button("📂 Open in Job Cards Page", use_container_width=True, key=f"open_jc_{jc_id}"):
-                st.session_state["open_job_card_id"] = jc_id
-                st.info("Go to Job Cards → Manage tab to view it.")
-
-        # --------------------------
-        # Sign-off (INLINE)
-        # --------------------------
-        st.divider()
-        st.markdown("### ✍️ Sign-Off")
-
-        existing_signoff = db.get_job_card_signoff(jc_id)
-        if existing_signoff:
-            st.success(
-                f"Signed by {existing_signoff['signed_by_name']} ({existing_signoff['signed_by_role']}) "
-                f"at {existing_signoff['signed_at']}"
-            )
-            if existing_signoff.get("signoff_notes"):
-                st.caption(existing_signoff["signoff_notes"])
         else:
-            s1, s2 = st.columns([1, 1])
-            with s1:
-                signed_by_name = st.text_input("Signed by", value=st.session_state.get("admin_name", ""), key=f"jc_sig_name_{jc_id}")
-                signed_by_role = st.text_input("Role", value=st.session_state.get("admin_role", ""), key=f"jc_sig_role_{jc_id}")
-            notes = st.text_area("Sign-off notes (optional)", key=f"jc_sig_notes_{jc_id}")
+            jc_id = int(jc["id"])
+            st.success(f"✅ Job Card linked: #{jc_id}")
 
-            if st.button("✅ Sign Off Job Card", key=f"jc_signoff_{jc_id}"):
-                if not signed_by_name.strip():
-                    st.error("Please enter who is signing off.")
-                else:
-                    db.signoff_job_card(
-                        job_card_id=jc_id,
-                        signed_by_name=signed_by_name.strip(),
-                        signed_by_role=signed_by_role.strip() or "—",
-                        signoff_notes=notes.strip() or None,
-                    )
-                    # Optionally set status automatically
+            # lock UI if signed off
+            is_signed_off = (str(jc.get("status") or "").strip().lower() == "signed off")
+
+            colA, colB = st.columns([1.2, 0.8])
+
+            with colA:
+                jc_title = st.text_input(
+                    "Title",
+                    value=jc.get("title") or "",
+                    key=f"edit_jc_title_{jc_id}",
+                    disabled=is_signed_off,
+                )
+                jc_desc = st.text_area(
+                    "Description",
+                    value=jc.get("description") or "",
+                    height=100,
+                    key=f"edit_jc_desc_{jc_id}",
+                    disabled=is_signed_off,
+                )
+                jc_acts = st.text_area(
+                    "Activities / Work Log",
+                    value=jc.get("activities") or "",
+                    height=160,
+                    key=f"edit_jc_acts_{jc_id}",
+                    disabled=is_signed_off,
+                )
+
+            with colB:
+                current_status = (jc.get("status") or "Open").strip()
+                if current_status not in JOB_STATUS_LIST:
+                    current_status = "Open"
+
+                jc_status = st.selectbox(
+                    "Job Card Status",
+                    JOB_STATUS_LIST,
+                    index=JOB_STATUS_LIST.index(current_status),
+                    key=f"edit_jc_status_{jc_id}",
+                    disabled=is_signed_off,
+                )
+
+                est_cost_val = st.number_input(
+                    "Estimated cost",
+                    min_value=0.0,
+                    step=100.0,
+                    value=float(jc.get("estimated_cost") or 0.0),
+                    key=f"edit_jc_est_{jc_id}",
+                    disabled=is_signed_off,
+                )
+                act_cost_val = st.number_input(
+                    "Actual cost",
+                    min_value=0.0,
+                    step=100.0,
+                    value=float(jc.get("actual_cost") or 0.0),
+                    key=f"edit_jc_act_{jc_id}",
+                    disabled=is_signed_off,
+                )
+
+                admin_users = db.fetch_admin_users()
+                admin_map = {0: "— Unassigned —"}
+                admin_map.update({int(a["id"]): a["name"] for a in admin_users})
+
+                current_assigned = int(jc.get("assigned_admin_id") or 0)
+                if current_assigned not in admin_map:
+                    current_assigned = 0
+
+                assigned_admin_id = st.selectbox(
+                    "Assigned to",
+                    options=list(admin_map.keys()),
+                    index=list(admin_map.keys()).index(current_assigned),
+                    format_func=lambda x: admin_map[x],
+                    key=f"edit_jc_assign_{jc_id}",
+                    disabled=is_signed_off,
+                )
+
+            csave, copen = st.columns([1, 1])
+
+            with csave:
+                if st.button(
+                    "💾 Save Job Card Changes",
+                    width="stretch",
+                    key=f"save_jc_{jc_id}",
+                    disabled=is_signed_off,
+                ):
                     db.update_job_card(
                         job_card_id=jc_id,
                         title=jc_title.strip() or None,
                         description=jc_desc.strip() or None,
                         activities=jc_acts.strip() or None,
-                        status="Signed Off",
+                        status=jc_status,
                         estimated_cost=float(est_cost_val) if est_cost_val > 0 else None,
                         actual_cost=float(act_cost_val) if act_cost_val > 0 else None,
                         assigned_admin_id=None if assigned_admin_id == 0 else int(assigned_admin_id),
                     )
-                    st.success("✅ Signed off.")
+                    st.success("✅ Job card updated.")
+                    st.session_state.tickets_cache = None
                     st.rerun()
 
+            with copen:
+                if st.button("📂 Open in Job Cards Page", width="stretch", key=f"open_jc_{jc_id}"):
+                    st.session_state["job_card_view_id"] = jc_id
+                    st.session_state["open_job_card_id"] = jc_id
+                    st.info("Go to Job Cards → Manage tab to view it.")
+
+            # ---------- PDF DOWNLOAD ----------
+            st.divider()
+            st.markdown("### 📄 Download Job Card PDF")
+
+            signoff = None
+            try:
+                signoff = db.get_job_card_signoff(jc_id)
+            except Exception:
+                signoff = None
+
+            # attachments list for pdf (names only)
+            ticket_media_df = None
+            try:
+                ticket_media_df = db.fetch_job_card_media(jc_id)
+            except Exception:
+                ticket_media_df = None
+
+            attachments = []
+            if ticket_media_df is not None and not ticket_media_df.empty:
+                for _, r in ticket_media_df.iterrows():
+                    attachments.append(
+                        {
+                            "filename": r.get("filename", "attachment"),
+                            "media_type": r.get("media_type", "file"),
+                        }
+                    )
+
+            pdf_bytes = build_job_card_pdf(
+                job_card=jc,
+                signoff=signoff,
+                attachments=attachments,
+                brand_title="Apricot Property Solutions",
+                logo_path="logo1.png",
+            )
+
+            st.download_button(
+                "⬇️ Download PDF",
+                data=pdf_bytes,
+                file_name=f"job_card_{jc_id}.pdf",
+                mime="application/pdf",
+                width="stretch",
+                key=f"dl_jobcard_pdf_{jc_id}",
+            )
+
+            # ---------- SIGN-OFF ----------
+            st.divider()
+            st.markdown("### ✍️ Sign-Off")
+
+            existing_signoff = None
+            try:
+                existing_signoff = db.get_job_card_signoff(jc_id)
+            except Exception:
+                existing_signoff = None
+
+            if existing_signoff:
+                st.success(
+                    f"Signed by {existing_signoff.get('signed_by_name')} ({existing_signoff.get('signed_by_role')}) "
+                    f"at {existing_signoff.get('signed_at')}"
+                )
+                if existing_signoff.get("signoff_notes"):
+                    st.caption(existing_signoff["signoff_notes"])
+                st.info("This job card is locked because it is Signed Off.")
+            else:
+                s1, s2 = st.columns([1, 1])
+                with s1:
+                    signed_by_name = st.text_input(
+                        "Signed by",
+                        value=st.session_state.get("admin_name", ""),
+                        key=f"jc_sig_name_{jc_id}",
+                    )
+                with s2:
+                    signed_by_role = st.text_input(
+                        "Role",
+                        value=st.session_state.get("admin_role", ""),
+                        key=f"jc_sig_role_{jc_id}",
+                    )
+                notes = st.text_area("Sign-off notes (optional)", key=f"jc_sig_notes_{jc_id}")
+
+                if st.button("✅ Sign Off Job Card", key=f"jc_signoff_btn_{jc_id}", width="stretch"):
+                    if not signed_by_name.strip():
+                        st.error("Please enter who is signing off.")
+                    else:
+                        db.signoff_job_card(
+                            job_card_id=jc_id,
+                            signed_by_name=signed_by_name.strip(),
+                            signed_by_role=signed_by_role.strip() or "—",
+                            signoff_notes=notes.strip() or None,
+                        )
+                        # set status to Signed Off
+                        db.update_job_card(
+                            job_card_id=jc_id,
+                            title=jc_title.strip() or None,
+                            description=jc_desc.strip() or None,
+                            activities=jc_acts.strip() or None,
+                            status="Signed Off",
+                            estimated_cost=float(est_cost_val) if est_cost_val > 0 else None,
+                            actual_cost=float(act_cost_val) if act_cost_val > 0 else None,
+                            assigned_admin_id=None if assigned_admin_id == 0 else int(assigned_admin_id),
+                        )
+                        st.success("✅ Signed off.")
+                        st.rerun()
 
     # -------------------------------------------------------------------------
-    # ATTACHMENTS TAB (grid)
+    # ATTACHMENTS TAB
     # -------------------------------------------------------------------------
     with tab_attachments:
         media_df = db.fetch_ticket_media(ticket_id)
@@ -866,10 +838,8 @@ elif selected == "Dashboard":
         else:
             st.caption(f"{len(media_df)} attachment(s)")
             cols = st.columns(3)
-
             for idx, row in media_df.reset_index(drop=True).iterrows():
-                col = cols[idx % 3]
-                with col:
+                with cols[idx % 3]:
                     m_type = row["media_type"]
                     m_blob = row["media_blob"]
                     f_name = row.get("filename", "attachment")
@@ -891,7 +861,7 @@ elif selected == "Dashboard":
                     )
 
                     if m_type == "image":
-                        st.image(BytesIO(m_blob), use_container_width=True)
+                        st.image(BytesIO(m_blob), width="stretch")
                     elif m_type == "video":
                         st.video(BytesIO(m_blob))
                     else:
@@ -900,20 +870,18 @@ elif selected == "Dashboard":
                             data=m_blob,
                             file_name=f_name,
                             key=f"dl_{ticket_id}_{idx}",
-                            use_container_width=True,
+                            width="stretch",
                         )
 
     # -------------------------------------------------------------------------
-    # ACTIVITY TAB (clean feed)
+    # ACTIVITY TAB
     # -------------------------------------------------------------------------
     with tab_activity:
         history_df = db.fetch_ticket_history(ticket_id)
-
         if history_df is None or history_df.empty:
             st.info("No ticket activity available.")
         else:
             history_df = history_df.sort_values("performed_at", ascending=False)
-
             for _, row in history_df.iterrows():
                 action = str(row.get("action", "Update"))
                 who = str(row.get("performed_by", "System"))
@@ -927,6 +895,7 @@ elif selected == "Dashboard":
                     st.markdown(header)
                     st.caption(ts)
                     st.write(details)
+
 
 # -----------------------------------------------------------------------------
 # Create Ticket
@@ -952,7 +921,7 @@ elif selected == "Send Bulk Message":
 
     notice_text = st.text_area("Notice Text", placeholder="Write your notice content here")
 
-    if st.button("Send Notice Template"):
+    if st.button("Send Notice Template", width="stretch"):
         if not notice_text.strip():
             st.error("⚠️ Please enter the notice text.")
             st.stop()
@@ -1011,7 +980,7 @@ elif selected == "Send Bulk Message":
             cols[i_status], cols[i_wa] = cols[i_wa], cols[i_status]
             report_df = report_df[cols]
 
-        st.dataframe(report_df, use_container_width=True, hide_index=True)
+        st.dataframe(report_df, width="stretch", hide_index=True)
 
         csv_data = report_df.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -1019,6 +988,7 @@ elif selected == "Send Bulk Message":
             data=csv_data,
             file_name=f"notice_send_report_{property_name.replace(' ', '_')}.csv",
             mime="text/csv",
+            width="stretch",
         )
 
 # -----------------------------------------------------------------------------
@@ -1028,7 +998,7 @@ elif selected == "Admin Reassignment History":
     st.title("📜 Admin Reassignment History")
     reassign_log_df = db.fetch_admin_reassignment_log()
     if reassign_log_df is not None and not reassign_log_df.empty:
-        st.dataframe(reassign_log_df, use_container_width=True, hide_index=True)
+        st.dataframe(reassign_log_df, width="stretch", hide_index=True)
     else:
         st.warning("⚠️ No reassignments have been logged yet.")
 
@@ -1095,6 +1065,8 @@ elif selected == "KPI Dashboard":
 
     KPIDashboard(db).render()
 
-
+# -----------------------------------------------------------------------------
+# Job Cards page
+# -----------------------------------------------------------------------------
 elif selected == "Job Cards":
     job_cards_page(db)

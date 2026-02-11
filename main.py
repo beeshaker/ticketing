@@ -5,7 +5,7 @@ import pandas as pd
 import bcrypt
 from io import BytesIO
 from sqlalchemy.sql import text
-
+from job_cards import job_cards_page
 from conn import Conn
 from license import LicenseManager
 from login import login
@@ -74,49 +74,48 @@ if not st.session_state.authenticated:
 # -----------------------------------------------------------------------------
 # Sidebar Menu
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Sidebar Menu
+# -----------------------------------------------------------------------------
 st.sidebar.write("Current role:", st.session_state.get("admin_role", ""))
 
 menu_options = ["Dashboard", "Create Ticket", "Logout"]
 menu_icons = ["bar-chart", "file-earmark-plus", "box-arrow-right"]
 
-# Admin role menus
+# -----------------------------------------------------------------------------
+# Role-based menu injection (stable ordering, no fragile indexes)
+# -----------------------------------------------------------------------------
 if st.session_state.admin_role == "Admin":
-    menu_options.insert(1, "Admin User Creation")
-    menu_icons.insert(1, "person-gear")
+    role_items = [
+        ("Admin User Creation", "person-gear"),
+        ("Register User", "person-plus"),
+        ("Create Property", "building"),
+        ("Job Cards", "file-text"),
+    ]
 
-    menu_options.insert(2, "Register User")
-    menu_icons.insert(2, "person-plus")
-
-    menu_options.insert(3, "Create Property")
-    menu_icons.insert(3, "building")
+    # Insert all role items directly after "Dashboard"
+    for label, icon in reversed(role_items):
+        menu_options.insert(1, label)
+        menu_icons.insert(1, icon)
 
 elif st.session_state.admin_role == "Super Admin":
-    menu_options.insert(1, "Admin User Creation")
-    menu_icons.insert(1, "person-plus")
+    role_items = [
+        ("Admin User Creation", "person-plus"),
+        ("Edit/Delete Admin", "person-x"),
+        ("Register User", "person-fill-add"),
+        ("Edit/Delete User", "person-fill-x"),
+        ("Create Property", "building-add"),
+        ("Edit/Delete Property", "building-gear"),
+        ("Send Bulk Message", "envelope-paper-fill"),
+        ("Admin Reassignment History", "clock-history"),
+        ("KPI Dashboard", "speedometer2"),
+        ("Job Cards", "file-text"),
+    ]
 
-    menu_options.insert(2, "Edit/Delete Admin")
-    menu_icons.insert(2, "person-x")
-
-    menu_options.insert(3, "Register User")
-    menu_icons.insert(3, "person-fill-add")
-
-    menu_options.insert(4, "Edit/Delete User")
-    menu_icons.insert(4, "person-fill-x")
-
-    menu_options.insert(5, "Create Property")
-    menu_icons.insert(5, "building-add")
-
-    menu_options.insert(6, "Edit/Delete Property")
-    menu_icons.insert(6, "building-gear")
-
-    menu_options.insert(7, "Send Bulk Message")
-    menu_icons.insert(7, "envelope-paper-fill")
-
-    menu_options.insert(8, "Admin Reassignment History")
-    menu_icons.insert(8, "clock-history")
-
-    menu_options.insert(9, "KPI Dashboard")
-    menu_icons.insert(9, "speedometer2")
+    # Insert all role items directly after "Dashboard"
+    for label, icon in reversed(role_items):
+        menu_options.insert(1, label)
+        menu_icons.insert(1, icon)
 
 with st.sidebar:
     selected = option_menu(
@@ -704,6 +703,37 @@ elif selected == "Dashboard":
             st.session_state.last_hash = db.get_tickets_hash()
             st.success(f"✅ Due date updated to {due_date.strftime('%Y-%m-%d')}")
             st.rerun()
+
+
+        st.divider()
+        st.markdown("### 🧾 Job Card")
+
+        jc = db.get_job_card_by_ticket(ticket_id)
+
+        if jc:
+            st.success(f"✅ Job Card exists: #{jc['id']} • Status: {jc['status']}")
+            if st.button("Open Job Card", key=f"open_jc_{ticket_id}"):
+                st.session_state["job_card_view_id"] = int(jc["id"])
+                st.session_state["open_job_card_id"] = int(jc["id"])
+                st.info("Go to Job Cards → Manage tab to view it.")
+        else:
+            title = st.text_input("Job card title (optional)", key=f"jc_title_{ticket_id}")
+            est_cost = st.number_input("Estimated cost (optional)", min_value=0.0, step=100.0, key=f"jc_est_{ticket_id}")
+            copy_media = st.checkbox("Copy ticket attachments", value=True, key=f"jc_copy_{ticket_id}")
+
+            if st.button("Create Job Card from this Ticket", key=f"create_jc_{ticket_id}"):
+                jc_id = db.create_job_card_from_ticket(
+                    ticket_id=ticket_id,
+                    created_by_admin_id=st.session_state.get("admin_id"),
+                    assigned_admin_id=None,  # or selected caretaker/admin
+                    title=title.strip() if title.strip() else None,
+                    estimated_cost=float(est_cost) if est_cost > 0 else None,
+                    copy_media=copy_media,
+                )
+                st.success(f"✅ Created Job Card #{jc_id}")
+                st.session_state["job_card_view_id"] = int(jc_id)
+                st.session_state["open_job_card_id"] = int(jc_id)
+                st.rerun()
 
     # -------------------------------------------------------------------------
     # ATTACHMENTS TAB (grid)

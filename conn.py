@@ -884,6 +884,330 @@ class Conn:
             ).mappings().all()
 
         return pd.DataFrame(rows)
+    
+
+    # -------------------- JOB CARDS -------------------- #
+
+    def get_job_card_by_ticket(self, ticket_id: int):
+        q = text("""
+            SELECT jc.*, 
+                p.name AS property_name,
+                a1.name AS created_by_name,
+                a2.name AS assigned_to_name
+            FROM job_cards jc
+            LEFT JOIN properties p ON p.id = jc.property_id
+            LEFT JOIN admin_users a1 ON a1.id = jc.created_by_admin_id
+            LEFT JOIN admin_users a2 ON a2.id = jc.assigned_admin_id
+            WHERE jc.ticket_id = :ticket_id
+            LIMIT 1
+        """)
+        with self.engine.connect() as conn:
+            row = conn.execute(q, {"ticket_id": ticket_id}).mappings().first()
+        return dict(row) if row else None
+
+
+    def get_job_card(self, job_card_id: int):
+        q = text("""
+            SELECT jc.*,
+                p.name AS property_name,
+                a1.name AS created_by_name,
+                a2.name AS assigned_to_name
+            FROM job_cards jc
+            LEFT JOIN properties p ON p.id = jc.property_id
+            LEFT JOIN admin_users a1 ON a1.id = jc.created_by_admin_id
+            LEFT JOIN admin_users a2 ON a2.id = jc.assigned_admin_id
+            WHERE jc.id = :id
+        """)
+        with self.engine.connect() as conn:
+            row = conn.execute(q, {"id": job_card_id}).mappings().first()
+        return dict(row) if row else None
+
+
+    def fetch_job_cards(self, status=None, property_id=None, has_ticket=None):
+        base = """
+            SELECT
+                jc.id,
+                jc.ticket_id,
+                jc.status,
+                jc.title,
+                jc.created_at,
+                p.name AS property,
+                jc.unit_number,
+                a.name AS assigned_admin,
+                jc.estimated_cost,
+                jc.actual_cost
+            FROM job_cards jc
+            LEFT JOIN properties p ON p.id = jc.property_id
+            LEFT JOIN admin_users a ON a.id = jc.assigned_admin_id
+            WHERE 1=1
+        """
+        params = {}
+
+        if status and status != "All":
+            base += " AND jc.status = :status"
+            params["status"] = status
+
+        if property_id and str(property_id) != "All":
+            base += " AND jc.property_id = :property_id"
+            params["property_id"] = property_id
+
+        if has_ticket == "Yes":
+            base += " AND jc.ticket_id IS NOT NULL"
+        elif has_ticket == "No":
+            base += " AND jc.ticket_id IS NULL"
+
+        base += " ORDER BY jc.id DESC"
+
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(base), conn, params=params)
+        return df
+
+
+    def fetch_job_card_media(self, job_card_id: int):
+        q = text("""
+            SELECT media_type, media_blob, filename
+            FROM job_card_media
+            WHERE job_card_id = :job_card_id
+            ORDER BY id DESC
+        """)
+        with self.engine.connect() as conn:
+            df = pd.read_sql(q, conn, params={"job_card_id": job_card_id})
+        return df
+
+
+    def fetch_ticket_updates_as_activities_text(self, ticket_id: int) -> str:
+        """
+        Turns ticket_updates + reassignments into a single readable text block.
+        This becomes the default job card "activities".
+        """
+        with self.engine.connect() as conn:
+            updates = conn.execute(text("""
+                SELECT updated_by, update_text, created_at
+                FROM ticket_updates
+                WHERE ticket_id = :ticket_id
+                ORDER BY created_at ASC
+            """), {"ticket_id": ticket_id}).mappings().all()
+
+            reassigns = conn.execute(text("""
+                SELECT changed_by_admin, reason, changed_at
+                FROM admin_change_log
+                WHERE ticket_id = :ticket_id
+                ORDER BY changed_at ASC
+            """), {"ticket_id": ticket_id}).mappings().all()
+
+        lines = []
+        for u in updates:
+            dt = u["created_at"]
+            ts = dt.strftime("%Y-%m-%d %H:%M") if hasattr(dt, "strftime") else str(dt)
+            lines.append(f"[UPDATE] {ts} • {u['updated_by']}: {u['update_text']}")
+
+        for r in reassigns:
+            dt = r["changed_at"]
+            ts = dt.strftime("%Y-%m-%d %H:%M") if hasattr(dt, "strftime") else str(dt)
+            lines.append(f"[REASSIGN] {ts} • {r['changed_by_admin']}: {r['reason']}")
+
+        return "\n".join(lines) if lines else ""
+
+
+    def create_job_card_from_ticket(
+        self,
+        ticket_id: int,
+        created_by_admin_id: int | None,
+        assigned_admin_id: int | None,
+        title: str | None = None,
+        estimated_cost: float | None = None,
+        copy_media: bool = True,
+    ):
+        """
+        Creates a job card linked to a ticket (1 per ticket), prefilled from ticket data.
+        Copies ticket_media -> job_card_media if copy_media=True.
+        """
+        # Ensure not already created
+        existing = self.get_job_card_by_ticket(ticket_id)
+        if existing:
+            return existing["id"]
+
+        with self.engine.begin() as conn:
+            t = conn.execute(text("""
+                SELECT
+                    t.id, t.issue_description, t.property_id,
+                    u.unit_number
+                FROM tickets t
+                JOIN users u ON u.id = t.user_id
+                WHERE t.id = :ticket_id
+            """), {"ticket_id": ticket_id}).mappings().first()
+
+            if not t:
+                raise ValueError("Ticket not found.")
+
+            activities_text = self.fetch_ticket_updates_as_activities_text(ticket_id)
+
+            conn.execute(text("""
+                INSERT INTO job_cards (
+                    ticket_id, property_id, unit_number,
+                    created_by_admin_id, assigned_admin_id,
+                    title, description, activities,
+                    estimated_cost, status, created_at
+                )
+                VALUES (
+                    :ticket_id, :property_id, :unit_number,
+                    :created_by, :assigned_to,
+                    :title, :description, :activities,
+                    :estimated_cost, 'Open', :created_at
+                )
+            """), {
+                "ticket_id": ticket_id,
+                "property_id": t["property_id"],
+                "unit_number": t["unit_number"],
+                "created_by": created_by_admin_id,
+                "assigned_to": assigned_admin_id,
+                "title": title,
+                "description": t["issue_description"],
+                "activities": activities_text,
+                "estimated_cost": estimated_cost,
+                "created_at": kenya_now(),
+            })
+
+            job_card_id = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+
+            if copy_media:
+                # Copy ALL ticket_media rows into job_card_media
+                conn.execute(text("""
+                    INSERT INTO job_card_media (job_card_id, media_type, media_blob, filename, source_ticket_media_id)
+                    SELECT
+                        :job_card_id,
+                        tm.media_type,
+                        tm.media_blob,
+                        tm.media_path,
+                        tm.id
+                    FROM ticket_media tm
+                    WHERE tm.ticket_id = :ticket_id
+                """), {"job_card_id": job_card_id, "ticket_id": ticket_id})
+
+        return int(job_card_id)
+
+
+    def create_job_card_standalone(
+        self,
+        description: str,
+        property_id: int | None,
+        unit_number: str | None,
+        created_by_admin_id: int | None,
+        assigned_admin_id: int | None,
+        title: str | None = None,
+        activities: str | None = None,
+        estimated_cost: float | None = None,
+    ):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO job_cards (
+                    ticket_id, property_id, unit_number,
+                    created_by_admin_id, assigned_admin_id,
+                    title, description, activities,
+                    estimated_cost, status, created_at
+                )
+                VALUES (
+                    NULL, :property_id, :unit_number,
+                    :created_by, :assigned_to,
+                    :title, :description, :activities,
+                    :estimated_cost, 'Open', :created_at
+                )
+            """), {
+                "property_id": property_id,
+                "unit_number": unit_number,
+                "created_by": created_by_admin_id,
+                "assigned_to": assigned_admin_id,
+                "title": title,
+                "description": description,
+                "activities": activities,
+                "estimated_cost": estimated_cost,
+                "created_at": kenya_now(),
+            })
+            job_card_id = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        return int(job_card_id)
+
+
+    def add_job_card_media(self, job_card_id: int, media_type: str, media_blob: bytes, filename: str | None):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO job_card_media (job_card_id, media_type, media_blob, filename, uploaded_at)
+                VALUES (:job_card_id, :media_type, :media_blob, :filename, :uploaded_at)
+            """), {
+                "job_card_id": job_card_id,
+                "media_type": media_type,
+                "media_blob": media_blob,
+                "filename": filename,
+                "uploaded_at": kenya_now()
+            })
+
+
+    def update_job_card_status(self, job_card_id: int, new_status: str):
+        with self.engine.begin() as conn:
+            if new_status == "Completed":
+                conn.execute(text("""
+                    UPDATE job_cards
+                    SET status = :status,
+                        completed_at = :completed_at
+                    WHERE id = :id
+                """), {"status": new_status, "completed_at": kenya_now(), "id": job_card_id})
+            else:
+                conn.execute(text("""
+                    UPDATE job_cards
+                    SET status = :status
+                    WHERE id = :id
+                """), {"status": new_status, "id": job_card_id})
+
+
+    def update_job_card_costs(self, job_card_id: int, estimated_cost=None, actual_cost=None):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE job_cards
+                SET estimated_cost = :estimated_cost,
+                    actual_cost = :actual_cost
+                WHERE id = :id
+            """), {
+                "estimated_cost": estimated_cost,
+                "actual_cost": actual_cost,
+                "id": job_card_id
+            })
+
+
+    def signoff_job_card(
+        self,
+        job_card_id: int,
+        signed_by_name: str,
+        signed_by_role: str | None,
+        signoff_notes: str | None,
+        signature_blob: bytes | None,
+        signature_filename: str | None,
+    ):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO job_card_signoff (
+                    job_card_id, signed_by_name, signed_by_role, signoff_notes,
+                    signature_blob, signature_filename, signed_at
+                )
+                VALUES (
+                    :job_card_id, :name, :role, :notes,
+                    :sig_blob, :sig_filename, :signed_at
+                )
+            """), {
+                "job_card_id": job_card_id,
+                "name": signed_by_name,
+                "role": signed_by_role,
+                "notes": signoff_notes,
+                "sig_blob": signature_blob,
+                "sig_filename": signature_filename,
+                "signed_at": kenya_now()
+            })
+
+            # Lock state to Signed Off
+            conn.execute(text("""
+                UPDATE job_cards
+                SET status = 'Signed Off'
+                WHERE id = :id
+            """), {"id": job_card_id})
+
 
 
     def caretaker_performance(self, start_dt, end_dt):

@@ -298,18 +298,19 @@ class Conn:
                 f"🔐 To view costs & attachments, enter the last 4 digits of your WhatsApp number."
             )
 
-            # If you already have a send_text_message() use that.
-            # Otherwise you can create a template like job_card_ready with parameters.
+            
             try:
-                self.send_text_message(to=wa_number, message=msg)
-            except Exception:
-                # Fallback to template if text send isn’t available
-                # Create a template "job_card_ready" that accepts [ticket, link]
+                # ✅ Send as normal text (no template needed)
+                self.send_whatsapp_notification(to=wa_number, message=msg)
+            except Exception as e:
+                # Fallback to template if text send fails for any reason
+                # Template "job_card_ready" should accept: [ticket_no, link]
                 self.send_template_notification(
                     to=wa_number,
                     template_name="job_card_ready",
                     template_parameters=[f"#{ticket_id}", public_link]
                 )
+
 
 
 

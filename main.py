@@ -706,34 +706,155 @@ elif selected == "Dashboard":
 
 
         st.divider()
-        st.markdown("### 🧾 Job Card")
+    st.markdown("### 🧾 Job Card")
 
-        jc = db.get_job_card_by_ticket(ticket_id)
+    jc = db.get_job_card_by_ticket(ticket_id)
 
-        if jc:
-            st.success(f"✅ Job Card exists: #{jc['id']} • Status: {jc['status']}")
-            if st.button("Open Job Card", key=f"open_jc_{ticket_id}"):
-                st.session_state["job_card_view_id"] = int(jc["id"])
-                st.session_state["open_job_card_id"] = int(jc["id"])
-                st.info("Go to Job Cards → Manage tab to view it.")
-        else:
-            title = st.text_input("Job card title (optional)", key=f"jc_title_{ticket_id}")
-            est_cost = st.number_input("Estimated cost (optional)", min_value=0.0, step=100.0, key=f"jc_est_{ticket_id}")
-            copy_media = st.checkbox("Copy ticket attachments", value=True, key=f"jc_copy_{ticket_id}")
+    if not jc:
+        st.info("No job card linked to this ticket yet.")
 
-            if st.button("Create Job Card from this Ticket", key=f"create_jc_{ticket_id}"):
-                jc_id = db.create_job_card_from_ticket(
-                    ticket_id=ticket_id,
-                    created_by_admin_id=st.session_state.get("admin_id"),
-                    assigned_admin_id=None,  # or selected caretaker/admin
-                    title=title.strip() if title.strip() else None,
-                    estimated_cost=float(est_cost) if est_cost > 0 else None,
-                    copy_media=copy_media,
+        title = st.text_input("Job card title (optional)", key=f"jc_title_{ticket_id}")
+        est_cost = st.number_input("Estimated cost (optional)", min_value=0.0, step=100.0, key=f"jc_est_{ticket_id}")
+        copy_media = st.checkbox("Copy ticket attachments", value=True, key=f"jc_copy_{ticket_id}")
+
+        if st.button("Create Job Card from this Ticket", key=f"create_jc_{ticket_id}"):
+            jc_id = db.create_job_card_from_ticket(
+                ticket_id=ticket_id,
+                created_by_admin_id=st.session_state.get("admin_id"),
+                assigned_admin_id=None,
+                title=title.strip() if title.strip() else None,
+                estimated_cost=float(est_cost) if est_cost > 0 else None,
+                copy_media=copy_media,
+            )
+            st.success(f"✅ Created Job Card #{jc_id}")
+            st.session_state["open_job_card_id"] = int(jc_id)
+            st.rerun()
+
+    else:
+        jc_id = int(jc["id"])
+        st.success(f"✅ Job Card linked: #{jc_id}")
+
+        # --------------------------
+        # Editable fields (INLINE)
+        # --------------------------
+        colA, colB = st.columns([1.2, 0.8])
+
+        with colA:
+            jc_title = st.text_input("Title", value=jc.get("title") or "", key=f"edit_jc_title_{jc_id}")
+
+            # Ticket description is copied, but allow editing here too
+            jc_desc = st.text_area("Description", value=jc.get("description") or "", height=100, key=f"edit_jc_desc_{jc_id}")
+
+            jc_acts = st.text_area("Activities / Work Log", value=jc.get("activities") or "", height=160, key=f"edit_jc_acts_{jc_id}")
+
+        with colB:
+            jc_status = st.selectbox(
+                "Job Card Status",
+                ["Draft", "In Progress", "Completed", "Signed Off"],
+                index=["Draft", "In Progress", "Completed", "Signed Off"].index(jc.get("status") or "Draft"),
+                key=f"edit_jc_status_{jc_id}",
+            )
+
+            est_cost_val = st.number_input(
+                "Estimated cost",
+                min_value=0.0,
+                step=100.0,
+                value=float(jc.get("estimated_cost") or 0.0),
+                key=f"edit_jc_est_{jc_id}",
+            )
+
+            act_cost_val = st.number_input(
+                "Actual cost",
+                min_value=0.0,
+                step=100.0,
+                value=float(jc.get("actual_cost") or 0.0),
+                key=f"edit_jc_act_{jc_id}",
+            )
+
+            # Optional assignment edit (admin/caretaker)
+            admin_users = db.fetch_admin_users()
+            admin_map = {0: "— Unassigned —"}
+            admin_map.update({int(a["id"]): a["name"] for a in admin_users})
+
+            current_assigned = int(jc.get("assigned_admin_id") or 0)
+            if current_assigned not in admin_map:
+                current_assigned = 0
+
+            assigned_admin_id = st.selectbox(
+                "Assigned to",
+                options=list(admin_map.keys()),
+                index=list(admin_map.keys()).index(current_assigned),
+                format_func=lambda x: admin_map[x],
+                key=f"edit_jc_assign_{jc_id}",
+            )
+
+        csave, copen = st.columns([1, 1])
+        with csave:
+            if st.button("💾 Save Job Card Changes", use_container_width=True, key=f"save_jc_{jc_id}"):
+                db.update_job_card(
+                    job_card_id=jc_id,
+                    title=jc_title.strip() or None,
+                    description=jc_desc.strip() or None,
+                    activities=jc_acts.strip() or None,
+                    status=jc_status,
+                    estimated_cost=float(est_cost_val) if est_cost_val > 0 else None,
+                    actual_cost=float(act_cost_val) if act_cost_val > 0 else None,
+                    assigned_admin_id=None if assigned_admin_id == 0 else int(assigned_admin_id),
                 )
-                st.success(f"✅ Created Job Card #{jc_id}")
-                st.session_state["job_card_view_id"] = int(jc_id)
-                st.session_state["open_job_card_id"] = int(jc_id)
+                st.success("✅ Job card updated.")
+                st.session_state.tickets_cache = None
                 st.rerun()
+
+        with copen:
+            if st.button("📂 Open in Job Cards Page", use_container_width=True, key=f"open_jc_{jc_id}"):
+                st.session_state["open_job_card_id"] = jc_id
+                st.info("Go to Job Cards → Manage tab to view it.")
+
+        # --------------------------
+        # Sign-off (INLINE)
+        # --------------------------
+        st.divider()
+        st.markdown("### ✍️ Sign-Off")
+
+        existing_signoff = db.get_job_card_signoff(jc_id)
+        if existing_signoff:
+            st.success(
+                f"Signed by {existing_signoff['signed_by_name']} ({existing_signoff['signed_by_role']}) "
+                f"at {existing_signoff['signed_at']}"
+            )
+            if existing_signoff.get("signoff_notes"):
+                st.caption(existing_signoff["signoff_notes"])
+        else:
+            s1, s2 = st.columns([1, 1])
+            with s1:
+                signed_by_name = st.text_input("Signed by", value=st.session_state.get("admin_name", ""), key=f"jc_sig_name_{jc_id}")
+                signed_by_role = st.text_input("Role", value=st.session_state.get("admin_role", ""), key=f"jc_sig_role_{jc_id}")
+            notes = st.text_area("Sign-off notes (optional)", key=f"jc_sig_notes_{jc_id}")
+
+            if st.button("✅ Sign Off Job Card", key=f"jc_signoff_{jc_id}"):
+                if not signed_by_name.strip():
+                    st.error("Please enter who is signing off.")
+                else:
+                    db.signoff_job_card(
+                        job_card_id=jc_id,
+                        signed_by_name=signed_by_name.strip(),
+                        signed_by_role=signed_by_role.strip() or "—",
+                        signoff_notes=notes.strip() or None,
+                    )
+                    # Optionally set status automatically
+                    db.update_job_card(
+                        job_card_id=jc_id,
+                        title=jc_title.strip() or None,
+                        description=jc_desc.strip() or None,
+                        activities=jc_acts.strip() or None,
+                        status="Signed Off",
+                        estimated_cost=float(est_cost_val) if est_cost_val > 0 else None,
+                        actual_cost=float(act_cost_val) if act_cost_val > 0 else None,
+                        assigned_admin_id=None if assigned_admin_id == 0 else int(assigned_admin_id),
+                    )
+                    st.success("✅ Signed off.")
+                    st.rerun()
+
 
     # -------------------------------------------------------------------------
     # ATTACHMENTS TAB (grid)

@@ -1209,6 +1209,86 @@ class Conn:
             """), {"id": job_card_id})
 
 
+    def update_job_card(
+        self,
+        job_card_id: int,
+        title: str | None,
+        description: str | None,
+        activities: str | None,
+        status: str,
+        estimated_cost: float | None,
+        actual_cost: float | None,
+        assigned_admin_id: int | None,
+    ):
+        """
+        Updates editable job card fields.
+        """
+        q = text("""
+            UPDATE job_cards
+            SET
+                title = :title,
+                description = :description,
+                activities = :activities,
+                status = :status,
+                estimated_cost = :estimated_cost,
+                actual_cost = :actual_cost,
+                assigned_admin_id = :assigned_admin_id,
+                updated_at = :updated_at
+            WHERE id = :id
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(q, {
+                "id": job_card_id,
+                "title": title,
+                "description": description,
+                "activities": activities,
+                "status": status,
+                "estimated_cost": estimated_cost,
+                "actual_cost": actual_cost,
+                "assigned_admin_id": assigned_admin_id,
+                "updated_at": kenya_now(),
+            })
+
+
+    def signoff_job_card(
+        self,
+        job_card_id: int,
+        signed_by_name: str,
+        signed_by_role: str,
+        signoff_notes: str | None = None,
+    ):
+        """
+        Creates a signoff record. (Keeps history if you want multiple signoffs.)
+        """
+        q = text("""
+            INSERT INTO job_card_signoff
+            (job_card_id, signed_by_name, signed_by_role, signoff_notes, signed_at)
+            VALUES (:job_card_id, :signed_by_name, :signed_by_role, :signoff_notes, :signed_at)
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(q, {
+                "job_card_id": job_card_id,
+                "signed_by_name": signed_by_name,
+                "signed_by_role": signed_by_role,
+                "signoff_notes": signoff_notes,
+                "signed_at": kenya_now(),
+            })
+
+
+    def get_job_card_signoff(self, job_card_id: int):
+        q = text("""
+            SELECT signed_by_name, signed_by_role, signoff_notes, signed_at
+            FROM job_card_signoff
+            WHERE job_card_id = :id
+            ORDER BY id DESC
+            LIMIT 1
+        """)
+        with self.engine.connect() as conn:
+            row = conn.execute(q, {"id": job_card_id}).mappings().first()
+        return dict(row) if row else None
+
+
+
 
     def caretaker_performance(self, start_dt, end_dt):
         """

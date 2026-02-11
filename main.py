@@ -1,4 +1,8 @@
 import streamlit as st
+
+# -----------------------------------------------------------------------------
+# ✅ Page config MUST be first Streamlit call
+# -----------------------------------------------------------------------------
 st.set_page_config(page_title="CRM Admin Portal", layout="wide")
 
 import pandas as pd
@@ -22,50 +26,57 @@ from kpi_dashboard import KPIDashboard
 
 from streamlit_option_menu import option_menu
 
-
 # -----------------------------------------------------------------------------
-# Init
+# ✅ Init DB
 # -----------------------------------------------------------------------------
 db = Conn()
 
+# -----------------------------------------------------------------------------
+# ✅ PUBLIC ROUTE BYPASS (Verify Job Card) — runs BEFORE license/auth
+# URL format:
+#   https://ticketingapricot.streamlit.app/?page=verify_job_card&id=184&t=TOKEN
+# -----------------------------------------------------------------------------
+params = st.query_params
+if params.get("page") == "verify_job_card":
+    # Import here so admin portal doesn't depend on public module at boot
+    from public_verify import verify_job_card_page  # you create this file/page
+    verify_job_card_page(db)
+    st.stop()
+
+# -----------------------------------------------------------------------------
 # Session State for Authentication
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-    st.session_state.admin_name = ""
-    st.session_state.admin_role = ""
-    st.session_state.admin_id = None
+# -----------------------------------------------------------------------------
+st.session_state.setdefault("authenticated", False)
+st.session_state.setdefault("admin_name", "")
+st.session_state.setdefault("admin_role", "")
+st.session_state.setdefault("admin_id", None)
 
 # Ticket watcher/session flags
-if "last_hash" not in st.session_state:
-    st.session_state.last_hash = None
-if "last_max_id" not in st.session_state:
-    st.session_state.last_max_id = 0
-if "tickets_cache" not in st.session_state:
-    st.session_state.tickets_cache = None
-if "new_ticket_flag" not in st.session_state:
-    st.session_state.new_ticket_flag = False
-if "new_ticket_msg" not in st.session_state:
-    st.session_state.new_ticket_msg = ""
+st.session_state.setdefault("last_hash", None)
+st.session_state.setdefault("last_max_id", 0)
+st.session_state.setdefault("tickets_cache", None)
+st.session_state.setdefault("new_ticket_flag", False)
+st.session_state.setdefault("new_ticket_msg", "")
 
-# Stable ticket selection (prevents jump when read-state changes)
-if "selected_ticket_id" not in st.session_state:
-    st.session_state.selected_ticket_id = None
+# Stable ticket selection
+st.session_state.setdefault("selected_ticket_id", None)
 
-# Filter UI state (so clearing goes back to normal)
+# Filter UI state
 st.session_state.setdefault("filter_property", "All")
 st.session_state.setdefault("filter_unit", "")
 st.session_state.setdefault("filter_due_bucket", "All")
 
-
 # -----------------------------------------------------------------------------
-# License check
+# License check (Admin portal only)
 # -----------------------------------------------------------------------------
 valid_license, license_message = LicenseManager.validate_license()
 if not valid_license:
     st.error(license_message)
     st.stop()
 
-# Force login if not authenticated
+# -----------------------------------------------------------------------------
+# Force login if not authenticated (Admin portal only)
+# -----------------------------------------------------------------------------
 if not st.session_state.authenticated:
     login()
     st.stop()
@@ -134,7 +145,6 @@ with st.sidebar:
         key="main_sidebar_menu",
     )
 
-
 # -----------------------------------------------------------------------------
 # Logout
 # -----------------------------------------------------------------------------
@@ -145,7 +155,6 @@ if selected == "Logout":
     st.session_state.admin_role = ""
     st.success("Logged out successfully.")
     st.rerun()
-
 
 # -----------------------------------------------------------------------------
 # Dashboard
@@ -381,7 +390,7 @@ elif selected == "Dashboard":
     with f1:
         prop_vals = sorted([p for p in tickets_df_all["property"].dropna().unique().tolist()])
         prop_options = ["All"] + prop_vals
-        selected_prop = st.selectbox(
+        st.selectbox(
             "Property",
             options=prop_options,
             index=prop_options.index(st.session_state.filter_property)
@@ -389,27 +398,29 @@ elif selected == "Dashboard":
             else 0,
             key="filter_property",
         )
+        selected_prop = st.session_state.filter_property
 
     with f2:
-        unit_q = st.text_input(
+        st.text_input(
             "Unit number",
             value=st.session_state.filter_unit,
             key="filter_unit",
             placeholder="e.g. A1 / 445",
         )
+        unit_q = st.session_state.filter_unit
 
     with f3:
         st.button("Clear filters", width="stretch", on_click=clear_filters)
 
     with f4:
-        due_filter = st.selectbox(
+        options = ["All", "Upcoming", "Due today", "Overdue", "No due date"]
+        st.selectbox(
             "Due date",
-            ["All", "Upcoming", "Due today", "Overdue", "No due date"],
-            index=["All", "Upcoming", "Due today", "Overdue", "No due date"].index(st.session_state.filter_due_bucket)
-            if st.session_state.filter_due_bucket in ["All", "Upcoming", "Due today", "Overdue", "No due date"]
-            else 0,
+            options,
+            index=options.index(st.session_state.filter_due_bucket) if st.session_state.filter_due_bucket in options else 0,
             key="filter_due_bucket",
         )
+        due_filter = st.session_state.filter_due_bucket
 
     tickets_df = tickets_df_all.copy()
 

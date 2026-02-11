@@ -1,4 +1,4 @@
-# job_card_pdf.py  (UPDATED - removed "Assigned To")
+# job_card_pdf.py  (FULL UPDATED — QR CODE ON PDF, NOT ON PAGE)
 import os
 from io import BytesIO
 from datetime import datetime
@@ -12,6 +12,9 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
+# ✅ QR generation (requires: qrcode[pil])
+import qrcode
+
 
 def build_job_card_pdf(
     job_card: Dict[str, Any],
@@ -20,14 +23,20 @@ def build_job_card_pdf(
     brand_title: str = "Apricot Property Solutions",
     logo_path: str = "logo1.png",
     footer_text: str = "Apricot Property Solutions • Nairobi, Kenya • support@apricotproperty.co.ke • +254 735 524 444",
+    public_verify_url: Optional[str] = None,  # ✅ pass the WhatsApp verification link here
 ) -> bytes:
     """
     Returns PDF bytes.
+
     - Renders logo + brand header
     - Professional layout (key details grid, sections)
+    - Renders QR code that links to the PUBLIC verification URL (same as WhatsApp link)
     - Renders signature image (if signoff contains signature_blob or signature_path)
     - Footer contact details
     - Page numbers
+
+    Requirements:
+      - pip install "qrcode[pil]"
     """
 
     buf = BytesIO()
@@ -47,31 +56,37 @@ def build_job_card_pdf(
 
     # Add custom styles (safe add)
     if "SectionHeader" not in styles:
-        styles.add(ParagraphStyle(
-            name="SectionHeader",
-            parent=styles["Heading2"],
-            fontSize=11.5,
-            textColor=colors.HexColor("#1A237E"),
-            spaceBefore=10,
-            spaceAfter=6,
-        ))
+        styles.add(
+            ParagraphStyle(
+                name="SectionHeader",
+                parent=styles["Heading2"],
+                fontSize=11.5,
+                textColor=colors.HexColor("#1A237E"),
+                spaceBefore=10,
+                spaceAfter=6,
+            )
+        )
 
     if "MetaSmall" not in styles:
-        styles.add(ParagraphStyle(
-            name="MetaSmall",
-            parent=styles["Normal"],
-            fontSize=8.8,
-            leading=11,
-            textColor=colors.HexColor("#444444"),
-        ))
+        styles.add(
+            ParagraphStyle(
+                name="MetaSmall",
+                parent=styles["Normal"],
+                fontSize=8.8,
+                leading=11,
+                textColor=colors.HexColor("#444444"),
+            )
+        )
 
     if "BodySmall" not in styles:
-        styles.add(ParagraphStyle(
-            name="BodySmall",
-            parent=styles["Normal"],
-            fontSize=9.4,
-            leading=12,
-        ))
+        styles.add(
+            ParagraphStyle(
+                name="BodySmall",
+                parent=styles["Normal"],
+                fontSize=9.4,
+                leading=12,
+            )
+        )
 
     # -------------------------
     # Helpers
@@ -95,13 +110,27 @@ def build_job_card_pdf(
         except Exception:
             return str(v)
 
+    def _make_qr_png_bytes(url: str) -> bytes:
+        qr = qrcode.QRCode(
+            version=None,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=6,
+            border=2,
+        )
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        b = BytesIO()
+        img.save(b, format="PNG")
+        return b.getvalue()
+
     # -------------------------
     # Page decorations
     # -------------------------
     def _draw_footer(canvas, doc_obj):
         canvas.saveState()
 
-        w, h = A4
+        w, _h = A4
         x_left = doc_obj.leftMargin
         x_right = w - doc_obj.rightMargin
         y = 10 * mm
@@ -144,56 +173,113 @@ def build_job_card_pdf(
         col_widths = [175 * mm]
 
     header_table = Table(header_data, colWidths=col_widths)
-    header_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-    ]))
+    header_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
     elements.append(header_table)
 
-    elements.append(HRFlowable(
-        width="100%",
-        thickness=1.2,
-        color=colors.HexColor("#1A237E"),
-        spaceBefore=6,
-        spaceAfter=10
-    ))
+    elements.append(
+        HRFlowable(
+            width="100%",
+            thickness=1.2,
+            color=colors.HexColor("#1A237E"),
+            spaceBefore=6,
+            spaceAfter=10,
+        )
+    )
 
     # Title
     elements.append(Paragraph("JOB CARD", styles["Heading2"]))
     elements.append(Paragraph(f"Reference ID: <b>#{_safe(job_card.get('id'))}</b>", styles["MetaSmall"]))
-    elements.append(Spacer(1, 10))
+    elements.append(Spacer(1, 8))
+
+    # ✅ QR block (top-right area in a 2-col table)
+    # If public_verify_url not provided, we silently omit the QR.
+    if public_verify_url:
+        try:
+            qr_png = _make_qr_png_bytes(public_verify_url)
+            qr_img = Image(BytesIO(qr_png), width=28 * mm, height=28 * mm)  # square QR
+            qr_label = Paragraph("Scan to verify", styles["MetaSmall"])
+            qr_url = Paragraph(f"<font size=7>{public_verify_url}</font>", styles["MetaSmall"])
+
+            qr_table = Table(
+                [[
+                    Paragraph("", styles["Normal"]),
+                    [qr_img, Spacer(1, 2), qr_label, Spacer(1, 2), qr_url],
+                ]],
+                colWidths=[120 * mm, 55 * mm],
+            )
+            qr_table.setStyle(
+                TableStyle(
+                    [
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                        ("TOPPADDING", (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ]
+                )
+            )
+            elements.append(qr_table)
+            elements.append(Spacer(1, 6))
+        except Exception:
+            # If QR creation fails for any reason, don't break PDF generation
+            pass
 
     # Key details grid (Assigned To removed)
     data = [
-        ["Ticket:", f"#{_safe(job_card.get('ticket_id'))}" if job_card.get("ticket_id") else "Standalone",
-         "Status:", _safe(job_card.get("status")).upper()],
-        ["Property:", _safe(job_card.get("property_name")),
-         "Unit:", _safe(job_card.get("unit_number"))],
-        ["Created By:", _safe(job_card.get("created_by_name")),
-         "Created At:", _dt(job_card.get("created_at"))],
-        ["Est. Cost:", _money(job_card.get("estimated_cost")),
-         "Actual Cost:", _money(job_card.get("actual_cost"))],
+        [
+            "Ticket:",
+            f"#{_safe(job_card.get('ticket_id'))}" if job_card.get("ticket_id") else "Standalone",
+            "Status:",
+            _safe(job_card.get("status")).upper(),
+        ],
+        [
+            "Property:",
+            _safe(job_card.get("property_name")),
+            "Unit:",
+            _safe(job_card.get("unit_number")),
+        ],
+        [
+            "Created By:",
+            _safe(job_card.get("created_by_name")),
+            "Created At:",
+            _dt(job_card.get("created_at")),
+        ],
+        [
+            "Est. Cost:",
+            _money(job_card.get("estimated_cost")),
+            "Actual Cost:",
+            _money(job_card.get("actual_cost")),
+        ],
     ]
 
     t = Table(data, colWidths=[22 * mm, 66 * mm, 22 * mm, 65 * mm])
-    t.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
-        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#666666")),
-        ("TEXTCOLOR", (2, 0), (2, -1), colors.HexColor("#666666")),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-
-        # status cell emphasis
-        ("BACKGROUND", (3, 0), (3, 0), colors.whitesmoke),
-        ("BOX", (3, 0), (3, 0), 0.6, colors.HexColor("#BDBDBD")),
-
-        # subtle outer border
-        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#E0E0E0")),
-        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#EEEEEE")),
-    ]))
+    t.setStyle(
+        TableStyle(
+            [
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+                ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#666666")),
+                ("TEXTCOLOR", (2, 0), (2, -1), colors.HexColor("#666666")),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                # status cell emphasis
+                ("BACKGROUND", (3, 0), (3, 0), colors.whitesmoke),
+                ("BOX", (3, 0), (3, 0), 0.6, colors.HexColor("#BDBDBD")),
+                # subtle outer border
+                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#E0E0E0")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#EEEEEE")),
+            ]
+        )
+    )
     elements.append(t)
     elements.append(Spacer(1, 10))
 
@@ -209,20 +295,20 @@ def build_job_card_pdf(
     # Attachments list (metadata only)
     if attachments:
         elements.append(Paragraph("Attachments", styles["SectionHeader"]))
-        lines = []
-        for a in attachments:
-            lines.append(f"• {_safe(a.get('filename'))} ({_safe(a.get('media_type'))})")
+        lines = [f"• {_safe(a.get('filename'))} ({_safe(a.get('media_type'))})" for a in attachments]
         elements.append(Paragraph("<br/>".join(lines), styles["MetaSmall"]))
 
     # Signoff section
     elements.append(Spacer(1, 14))
-    elements.append(HRFlowable(
-        width="100%",
-        thickness=0.6,
-        color=colors.HexColor("#C7C7C7"),
-        spaceBefore=4,
-        spaceAfter=8
-    ))
+    elements.append(
+        HRFlowable(
+            width="100%",
+            thickness=0.6,
+            color=colors.HexColor("#C7C7C7"),
+            spaceBefore=4,
+            spaceAfter=8,
+        )
+    )
     elements.append(Paragraph("Official Sign-Off", styles["SectionHeader"]))
 
     if signoff:
@@ -231,18 +317,22 @@ def build_job_card_pdf(
             ["Date Signed:", _dt(signoff.get("signed_at")), "", ""],
         ]
         stbl = Table(sign_data, colWidths=[28 * mm, 62 * mm, 14 * mm, 71 * mm])
-        stbl.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-            ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ]))
+        stbl.setStyle(
+            TableStyle(
+                [
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
         elements.append(stbl)
 
         if signoff.get("signoff_notes"):
             elements.append(Paragraph(f"<b>Notes:</b> {_safe(signoff.get('signoff_notes'))}", styles["BodySmall"]))
 
-        # Signature rendering:
+        # Signature rendering
         sig_path = signoff.get("signature_path")
         sig_blob = signoff.get("signature_blob")
         tmp_path = None
@@ -260,10 +350,9 @@ def build_job_card_pdf(
                 elements.append(Image(sig_path, width=45 * mm, height=18 * mm, kind="proportional"))
         finally:
             pass
-
     else:
         elements.append(Paragraph("<i>Pending physical or digital signature.</i>", styles["MetaSmall"]))
 
-    # Build PDF with footer and page numbers
+    # Build PDF with footer + page numbers
     doc.build(elements, onFirstPage=_draw_footer, onLaterPages=_draw_footer)
     return buf.getvalue()

@@ -3,7 +3,7 @@
 def main():
     import streamlit as st
     from io import BytesIO
-    import qrcode  # ✅ requirements.txt: qrcode[pil]
+
     from conn import Conn
     from job_card_pdf import build_job_card_pdf
 
@@ -63,20 +63,7 @@ def main():
         base = st.secrets.get("PUBLIC_BASE_URL", "https://ticketingapricot.streamlit.app").rstrip("/")
         return f"{base}/?page=verify_job_card&id={jc_id_int}&t={token}"
 
-    def _qr_png_bytes(data: str) -> bytes:
-        qr = qrcode.QRCode(
-            version=None,
-            error_correction=qrcode.constants.ERROR_CORRECT_M,
-            box_size=7,
-            border=2,
-        )
-        qr.add_data(data)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        buf = BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
-
+    
     # -------------------------
     # Data Loading & Logic
     # -------------------------
@@ -118,18 +105,7 @@ def main():
     st.title("Job Card Verification")
     st.divider()
 
-    # -------------------------
-    # QR code block (PUBLIC)
-    # -------------------------
-    with st.container():
-        q1, q2 = st.columns([1, 2.2])
-        with q1:
-            st.image(qr_bytes, width=170)
-        with q2:
-            st.markdown("### 📲 Scan to open this Job Card")
-            st.caption("This QR code opens the same verification link shared on WhatsApp.")
-            st.code(public_url, language="text")  # copy/paste fallback
-
+   
     st.markdown("---")
 
     # -------------------------

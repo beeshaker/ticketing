@@ -8,6 +8,10 @@ import requests
 import bcrypt
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import os
+from sqlalchemy.sql import text
+import secrets
+from sqlalchemy.sql import text
 
 load_dotenv()
 
@@ -193,11 +197,25 @@ class Conn:
             return {"error": str(e)}
 
     # -------------------- UPDATE TICKET STATUS -------------------- #
+
+
     def update_ticket_status(self, ticket_id, new_status):
         """
-        Updates ticket status and resolved_at (derived from status).
+        Updates ticket status and resolved_at.
+        If Resolved:
+        - Auto-create a Job Card (if missing)
+        - Generate/ensure public token
+        - Send tenant a public verification link (password is last 4 digits of WhatsApp)
         """
+        PUBLIC_BASE_URL = st.secrets.get("PUBLIC_PORTAL_BASE_URL", "").rstrip("/")
+        # Example: https://portal.apricotproperty.co.ke  (must include https)
+
+        wa_number = None
+        job_card_id = None
+        public_link = None
+
         with self.engine.begin() as conn:
+            # 1) Update ticket status + resolved_at
             if new_status == "Resolved":
                 conn.execute(
                     text("""
@@ -219,23 +237,80 @@ class Conn:
                     {"new_status": new_status, "ticket_id": ticket_id}
                 )
 
-            # Fetch user WhatsApp
-            result = conn.execute(
+            # 2) Fetch tenant WhatsApp number (for notification + password hint)
+            row = conn.execute(
                 text("""
                     SELECT u.whatsapp_number
                     FROM users u
                     JOIN tickets t ON u.id = t.user_id
                     WHERE t.id = :ticket_id
+                    LIMIT 1
                 """),
                 {"ticket_id": ticket_id}
             ).fetchone()
 
-        if result:
+            if row and row[0]:
+                wa_number = str(row[0]).strip()
+
+        # 3) Always send your existing status-change template
+        if wa_number:
             self.send_template_notification(
-                to=result[0],
+                to=wa_number,
                 template_name="ticket_status_change",
                 template_parameters=[f"#{ticket_id}", new_status]
             )
+
+        # 4) Only on Resolved: create/share Job Card public link
+        if new_status != "Resolved":
+            return
+
+        # If no base URL, we can’t create a usable link
+        if not PUBLIC_BASE_URL:
+            # Still fine: job card can exist internally; just skip sharing
+            return
+
+        # 4a) Ensure a Job Card exists for this ticket
+        jc = self.get_job_card_by_ticket(ticket_id)
+        if jc and jc.get("id"):
+            job_card_id = int(jc["id"])
+        else:
+            # Create from ticket (copy media recommended)
+            job_card_id = int(self.create_job_card_from_ticket(
+                ticket_id=int(ticket_id),
+                created_by_admin_id=None,     # system-created (optional)
+                assigned_admin_id=None,
+                title=None,
+                estimated_cost=None,
+                copy_media=True
+            ))
+
+        # 4b) Ensure public token exists + build link
+        token = self.ensure_job_card_public_token(job_card_id)
+        public_link = f"{PUBLIC_BASE_URL}/verify_job_card?id={job_card_id}&t={token}"
+
+        # 4c) Send tenant the link + password rule
+        #     (You can replace this with a WhatsApp template if you want)
+        if wa_number:
+            pin_hint = wa_number[-4:] if len(wa_number) >= 4 else ""
+            msg = (
+                f"✅ Ticket #{ticket_id} resolved.\n\n"
+                f"🧾 Your Job Card is ready:\n{public_link}\n\n"
+                f"🔐 To view costs & attachments, enter the last 4 digits of your WhatsApp number."
+            )
+
+            # If you already have a send_text_message() use that.
+            # Otherwise you can create a template like job_card_ready with parameters.
+            try:
+                self.send_text_message(to=wa_number, message=msg)
+            except Exception:
+                # Fallback to template if text send isn’t available
+                # Create a template "job_card_ready" that accepts [ticket, link]
+                self.send_template_notification(
+                    to=wa_number,
+                    template_name="job_card_ready",
+                    template_parameters=[f"#{ticket_id}", public_link]
+                )
+
 
 
     # -------------------- ADD TICKET UPDATE -------------------- #
@@ -1286,6 +1361,91 @@ class Conn:
         with self.engine.connect() as conn:
             row = conn.execute(q, {"id": job_card_id}).mappings().first()
         return dict(row) if row else None
+
+
+
+
+    # -------------------- JOB CARD PUBLIC VERIFY -------------------- #
+
+    def get_job_card_public(self, job_card_id: int, token: str):
+        """
+        Returns a SAFE job card view for public verification (no media blobs).
+        Valid only when token matches.
+        """
+        q = text("""
+            SELECT
+                jc.id,
+                jc.ticket_id,
+                jc.status,
+                jc.title,
+                jc.description,
+                jc.activities,
+                jc.estimated_cost,
+                jc.actual_cost,
+                jc.property_id,
+                p.name AS property_name,
+                jc.unit_number
+            FROM job_cards jc
+            LEFT JOIN properties p ON p.id = jc.property_id
+            WHERE jc.id = :id
+            AND jc.public_token = :t
+            LIMIT 1
+        """)
+        with self.engine.connect() as conn:
+            row = conn.execute(q, {"id": job_card_id, "t": token}).mappings().first()
+            return dict(row) if row else None
+
+
+    def verify_job_card_pin(self, job_card_id: int, token: str, pin4: str) -> bool:
+        """
+        Checks last 4 digits of WhatsApp number against the job card's linked tenant (via ticket -> user).
+        If no ticket/user exists, returns False (cannot unlock).
+        """
+        q = text("""
+            SELECT u.whatsapp_number
+            FROM job_cards jc
+            JOIN tickets t ON t.id = jc.ticket_id
+            JOIN users u ON u.id = t.user_id
+            WHERE jc.id = :id
+            AND jc.public_token = :t
+            LIMIT 1
+        """)
+        with self.engine.connect() as conn:
+            row = conn.execute(q, {"id": job_card_id, "t": token}).fetchone()
+            if not row or not row[0]:
+                return False
+
+            wa = str(row[0]).strip()
+            if len(wa) < 4:
+                return False
+
+            return wa[-4:] == str(pin4).strip()
+
+
+    def ensure_job_card_public_token(self, job_card_id: int) -> str:
+        """
+        Ensures a public_token exists. Returns token.
+        """
+        with self.engine.begin() as conn:
+            existing = conn.execute(
+                text("SELECT public_token FROM job_cards WHERE id = :id"),
+                {"id": job_card_id},
+            ).scalar()
+
+            if existing and str(existing).strip():
+                return str(existing)
+
+            token = secrets.token_urlsafe(48)
+            conn.execute(
+                text("""
+                    UPDATE job_cards
+                    SET public_token = :t,
+                        public_token_created_at = NOW()
+                    WHERE id = :id
+                """),
+                {"t": token, "id": job_card_id},
+            )
+            return token
 
 
 

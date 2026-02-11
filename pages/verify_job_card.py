@@ -86,9 +86,7 @@ def main():
         st.error("### ❌ Record Not Found\nThis job card may have been removed or the link has expired.")
         st.stop()
 
-    # Build the WhatsApp/public URL + QR (same link)
-    public_url = _build_public_verify_url(jc_id_int, str(token))
-    qr_bytes = _qr_png_bytes(public_url)
+   
 
     # -------------------------
     # UI Header
@@ -245,16 +243,6 @@ def main():
         key=f"dl_pdf_{jc_id_int}",
     )
 
-    # Optional: download QR
-    with st.expander("Download QR code"):
-        st.download_button(
-            "⬇️ Download QR (PNG)",
-            data=qr_bytes,
-            file_name=f"job_card_{jc_id_int}_qr.png",
-            mime="image/png",
-            use_container_width=True,
-            key=f"dl_qr_{jc_id_int}",
-        )
 
 
 # Allow running directly (optional)

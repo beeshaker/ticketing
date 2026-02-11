@@ -32,7 +32,37 @@ from streamlit_option_menu import option_menu
 db = Conn()
 
 # -----------------------------------------------------------------------------
+# ✅ PUBLIC BYPASS (Job Card Verification)
+# IMPORTANT:
+# Streamlit Cloud often loads the main script first even when visiting /verify_job_card
+# So we support BOTH URL styles:
+#   A) https://ticketingapricot.streamlit.app/?page=verify_job_card&id=184&t=TOKEN
+#   B) https://ticketingapricot.streamlit.app/verify_job_card?id=184&t=TOKEN
+#
+# We detect either case and switch to the public page BEFORE license/login.
+# -----------------------------------------------------------------------------
+params = st.query_params
 
+# Case A (query param router)
+is_public_query = (params.get("page") == "verify_job_card")
+
+# Case B (path-based) - Streamlit sets page_script_hash for multipage routing
+# NOTE: Not always available on all versions, so we guard it.
+is_public_path = False
+try:
+    ctx = st.runtime.scriptrunner.get_script_run_ctx()
+    if ctx is not None:
+        # Best-effort: if current page is already verify_job_card, do nothing.
+        # If main page is being hit, ctx.page_script_hash != pages/verify_job_card hash
+        # so we still switch when we see id+t in the URL (strong signal).
+        is_public_path = bool(params.get("id")) and bool(params.get("t")) and (params.get("page") is None)
+except Exception:
+    # If ctx isn't available, we can still use id+t as a strong signal
+    is_public_path = bool(params.get("id")) and bool(params.get("t")) and (params.get("page") is None)
+
+# If either style is detected, go to the public page
+if is_public_query or is_public_path:
+    st.switch_page("pages/verify_job_card.py")
 
 # -----------------------------------------------------------------------------
 # Session State for Authentication

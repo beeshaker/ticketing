@@ -5,7 +5,23 @@ from io import BytesIO
 from conn import Conn
 from job_card_pdf import build_job_card_pdf
 
+# -----------------------------------------------------------------------------
+# Page config (must be first Streamlit call)
+# -----------------------------------------------------------------------------
 st.set_page_config(page_title="Job Card Verification", layout="centered")
+
+# -----------------------------------------------------------------------------
+# Optional: hide sidebar/nav so public users can’t browse other pages
+# -----------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"], header, footer {display:none !important;}
+    .block-container {padding-top: 2rem;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 db = Conn()
 
@@ -59,9 +75,12 @@ if not jc:
     st.stop()
 
 # Minimal always-visible info (SAFE)
-st.markdown(f"### Job Card #{jc['id']}")
+st.markdown(f"### Job Card #{jc.get('id', jc_id_int)}")
 st.write(f"**Status:** {_safe(jc.get('status'))}")
-st.write(f"**Ticket:** {f'#{jc.get('ticket_id')}' if jc.get('ticket_id') else 'Standalone'}")
+
+ticket_label = f"#{jc.get('ticket_id')}" if jc.get("ticket_id") else "Standalone"
+st.write(f"**Ticket:** {ticket_label}")
+
 st.write(f"**Property:** {_safe(jc.get('property_name'))}")
 st.write(f"**Unit:** {_safe(jc.get('unit_number'))}")
 
@@ -117,12 +136,23 @@ else:
             blob = row.get("media_blob")
             fname = row.get("filename") or "attachment"
             st.caption(fname)
+
+            if blob is None:
+                st.info("Attachment unavailable.")
+                continue
+
             if m_type == "image":
                 st.image(BytesIO(blob), use_container_width=True)
             elif m_type == "video":
                 st.video(BytesIO(blob))
             else:
-                st.download_button("Download", data=blob, file_name=fname, key=f"dl_pub_{jc_id_int}_{idx}")
+                st.download_button(
+                    "Download",
+                    data=blob,
+                    file_name=fname,
+                    key=f"dl_pub_{jc_id_int}_{idx}",
+                    use_container_width=True,
+                )
 
 # PDF download
 st.divider()
@@ -131,7 +161,12 @@ st.markdown("### Download PDF")
 attachments_list = []
 if media_df is not None and not media_df.empty:
     for _, r in media_df.iterrows():
-        attachments_list.append({"filename": r.get("filename", "attachment"), "media_type": r.get("media_type", "file")})
+        attachments_list.append(
+            {
+                "filename": r.get("filename", "attachment"),
+                "media_type": r.get("media_type", "file"),
+            }
+        )
 
 pdf_bytes = build_job_card_pdf(
     job_card=jc,

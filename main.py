@@ -32,16 +32,7 @@ from streamlit_option_menu import option_menu
 db = Conn()
 
 # -----------------------------------------------------------------------------
-# ✅ PUBLIC ROUTE BYPASS (Verify Job Card) — runs BEFORE license/auth
-# URL format:
-#   https://ticketingapricot.streamlit.app/?page=verify_job_card&id=184&t=TOKEN
-# -----------------------------------------------------------------------------
-params = st.query_params
-if params.get("page") == "verify_job_card":
-    # Import here so admin portal doesn't depend on public module at boot
-    from public_verify import verify_job_card_page  # you create this file/page
-    verify_job_card_page(db)
-    st.stop()
+
 
 # -----------------------------------------------------------------------------
 # Session State for Authentication

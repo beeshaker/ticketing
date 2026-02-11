@@ -976,4 +976,4 @@ elif selected == "KPI Dashboard":
 
 
 elif selected == "Job Cards":
-    job_cards_page()
+    job_cards_page(db)

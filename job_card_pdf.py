@@ -1,4 +1,4 @@
-# job_card_pdf.py  (FULL UPDATED — QR CODE ON PDF, NOT ON PAGE)
+# job_card_pdf.py  (UPDATED — QR CODE ON PDF, QR ONLY (no URL text))
 import os
 from io import BytesIO
 from datetime import datetime
@@ -31,6 +31,7 @@ def build_job_card_pdf(
     - Renders logo + brand header
     - Professional layout (key details grid, sections)
     - Renders QR code that links to the PUBLIC verification URL (same as WhatsApp link)
+      ✅ QR ONLY (does NOT print the URL)
     - Renders signature image (if signoff contains signature_blob or signature_path)
     - Footer contact details
     - Page numbers
@@ -199,19 +200,17 @@ def build_job_card_pdf(
     elements.append(Paragraph(f"Reference ID: <b>#{_safe(job_card.get('id'))}</b>", styles["MetaSmall"]))
     elements.append(Spacer(1, 8))
 
-    # ✅ QR block (top-right area in a 2-col table)
-    # If public_verify_url not provided, we silently omit the QR.
+    # ✅ QR block (top-right area in a 2-col table) — QR ONLY
     if public_verify_url:
         try:
             qr_png = _make_qr_png_bytes(public_verify_url)
-            qr_img = Image(BytesIO(qr_png), width=28 * mm, height=28 * mm)  # square QR
+            qr_img = Image(BytesIO(qr_png), width=30 * mm, height=30 * mm)  # square QR
             qr_label = Paragraph("Scan to verify", styles["MetaSmall"])
-            qr_url = Paragraph(f"<font size=7>{public_verify_url}</font>", styles["MetaSmall"])
 
             qr_table = Table(
                 [[
                     Paragraph("", styles["Normal"]),
-                    [qr_img, Spacer(1, 2), qr_label, Spacer(1, 2), qr_url],
+                    [qr_img, Spacer(1, 2), qr_label],
                 ]],
                 colWidths=[120 * mm, 55 * mm],
             )
@@ -335,7 +334,6 @@ def build_job_card_pdf(
         # Signature rendering
         sig_path = signoff.get("signature_path")
         sig_blob = signoff.get("signature_blob")
-        tmp_path = None
 
         try:
             if not sig_path and sig_blob:

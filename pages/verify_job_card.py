@@ -1,186 +1,197 @@
-# pages/verify_job_card.py
 import streamlit as st
 from io import BytesIO
-
 from conn import Conn
 from job_card_pdf import build_job_card_pdf
 
 # -----------------------------------------------------------------------------
-# Page config (must be first Streamlit call)
+# Page Config & Custom Styling
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Job Card Verification", layout="centered")
+st.set_page_config(page_title="Job Card Verification | Apricot", layout="centered")
 
-# -----------------------------------------------------------------------------
-# Optional: hide sidebar/nav so public users can’t browse other pages
-# -----------------------------------------------------------------------------
-st.markdown(
-    """
+# Custom CSS for a modern "Card" feel and better typography
+st.markdown("""
     <style>
     [data-testid="stSidebar"], header, footer {display:none !important;}
-    .block-container {padding-top: 2rem;}
+    .block-container {padding-top: 2rem; max-width: 800px;}
+    
+    /* Main Card Styling */
+    .main-card {
+        background-color: #f8f9fa;
+        padding: 2rem;
+        border-radius: 12px;
+        border: 1px solid #e9ecef;
+        margin-bottom: 2rem;
+    }
+    
+    /* Status Badge Styling */
+    .status-badge {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        background-color: #e2e8f0;
+        color: #475569;
+    }
+    
+    .stButton button {
+        border-radius: 8px;
+        font-weight: 600;
+    }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """, unsafe_allow_html=True)
 
 db = Conn()
 
 # -------------------------
 # Helpers
 # -------------------------
-def _mask_phone(phone: str) -> str:
-    if not phone:
-        return "—"
-    s = str(phone)
-    if len(s) <= 4:
-        return "****"
-    return f"{s[:-4]}****"
-
 def _safe(v):
     return "—" if v is None or str(v).strip() == "" else str(v)
 
 # -------------------------
-# Read query params
-# URL: /verify_job_card?id=184&t=<token>
+# Data Loading & Logic
 # -------------------------
 qp = st.query_params
 jc_id = qp.get("id", None)
 token = qp.get("t", None)
 
-# Branding (optional)
-try:
-    st.image("logo1.png", width=160)
-except Exception:
-    pass
-
-st.title("✅ Job Card Verification")
-st.caption("Apricot Property Solutions")
-
 if not jc_id or not token:
-    st.error("Invalid verification link.")
+    st.error("### ⚠️ Invalid Link\nPlease ensure you have the correct URL provided by Apricot Property Solutions.")
     st.stop()
 
-try:
-    jc_id_int = int(jc_id)
-except Exception:
-    st.error("Invalid verification link.")
-    st.stop()
-
-# -------------------------
-# Load job card by token
-# -------------------------
-jc = db.get_job_card_public(jc_id_int, str(token))
+jc = db.get_job_card_public(int(jc_id), str(token))
 if not jc:
-    st.error("Invalid verification link.")
+    st.error("### ❌ Record Not Found\nThis job card may have been removed or the link has expired.")
     st.stop()
 
-# Minimal always-visible info (SAFE)
-st.markdown(f"### Job Card #{jc.get('id', jc_id_int)}")
-st.write(f"**Status:** {_safe(jc.get('status'))}")
+# -------------------------
+# UI Header
+# -------------------------
+col1, col2 = st.columns([1, 2])
+with col1:
+    try:
+        st.image("logo1.png", width=140)
+    except:
+        st.subheader("Apricot")
+with col2:
+    st.markdown(f"<div style='text-align: right; color: gray;'>Verification Portal</div>", unsafe_allow_html=True)
 
-ticket_label = f"#{jc.get('ticket_id')}" if jc.get("ticket_id") else "Standalone"
-st.write(f"**Ticket:** {ticket_label}")
-
-st.write(f"**Property:** {_safe(jc.get('property_name'))}")
-st.write(f"**Unit:** {_safe(jc.get('unit_number'))}")
-
-st.markdown("### Description")
-st.write(_safe(jc.get("description")))
-
-st.markdown("### Protected details")
-st.caption("Enter the last 4 digits of your WhatsApp number to unlock costs, attachments, and the signed job card PDF.")
+st.title("Job Card Verification")
+st.divider()
 
 # -------------------------
-# Password gate (NO wrong password message)
+# PUBLIC SECTION (Always Visible)
 # -------------------------
-pin = st.text_input("Verification code", type="password", max_chars=4, placeholder="Last 4 digits")
+# Use columns for a "Dashboard" look
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.caption("Job Card ID")
+    st.markdown(f"**#{jc.get('id')}**")
+with c2:
+    st.caption("Current Status")
+    status = _safe(jc.get('status'))
+    st.markdown(f"**{status}**")
+with c3:
+    st.caption("Ticket Reference")
+    st.markdown(f"**{jc.get('ticket_id', 'Standalone')}**")
 
-unlock = False
-if pin and len(pin.strip()) == 4:
-    unlock = db.verify_job_card_pin(jc_id_int, str(token), pin.strip())
+st.markdown("---")
 
-# If not unlocked: show nothing else, no error text
+# Main Property Info
+with st.container():
+    col_left, col_right = st.columns(2)
+    with col_left:
+        st.markdown("##### 📍 Location")
+        st.write(f"**Property:** {_safe(jc.get('property_name'))}")
+        st.write(f"**Unit:** {_safe(jc.get('unit_number'))}")
+    
+    with col_right:
+        st.markdown("##### 📝 Scope of Work")
+        st.write(_safe(jc.get("description")))
+
+# -------------------------
+# SECURITY GATE
+# -------------------------
+st.markdown("### 🔒 Private Details")
+with st.expander("Verification Required", expanded=True):
+    st.info("To view costs, signed documents, and photos, please verify your identity.")
+    pin = st.text_input("Last 4 digits of your registered WhatsApp number", type="password", max_chars=4)
+    
+    unlock = False
+    if pin and len(pin.strip()) == 4:
+        unlock = db.verify_job_card_pin(int(jc_id), str(token), pin.strip())
+        if not unlock:
+            st.warning("The code entered does not match our records.")
+
 if not unlock:
     st.stop()
 
 # -------------------------
-# UNLOCKED SECTION
+# UNLOCKED SECTION (Professional Layout)
 # -------------------------
-st.success("Unlocked ✅")
+st.toast("Identity Verified", icon="✅")
 
-st.markdown("### Costs")
-st.write(f"**Estimated Cost:** {jc.get('estimated_cost') if jc.get('estimated_cost') is not None else '—'}")
-st.write(f"**Actual Cost:** {jc.get('actual_cost') if jc.get('actual_cost') is not None else '—'}")
+# 1. Costs in a clean Metric layout
+st.markdown("### Financial Summary")
+m1, m2 = st.columns(2)
+m1.metric("Estimated Cost", f"KES {jc.get('estimated_cost', 0):,.2f}" if jc.get('estimated_cost') else "—")
+m2.metric("Actual Cost", f"KES {jc.get('actual_cost', 0):,.2f}" if jc.get('actual_cost') else "—")
 
-# Signoff
-signoff = db.get_job_card_signoff(jc_id_int)
-st.markdown("### Sign-off")
+# 2. Sign-off Details
+st.markdown("### Sign-off Details")
+signoff = db.get_job_card_signoff(int(jc_id))
 if signoff:
-    st.write(f"**Signed by:** {_safe(signoff.get('signed_by_name'))} ({_safe(signoff.get('signed_by_role'))})")
-    st.write(f"**Signed at:** {_safe(signoff.get('signed_at'))}")
-    if signoff.get("signoff_notes"):
-        st.write(f"**Notes:** {signoff.get('signoff_notes')}")
+    with st.container():
+        st.markdown(f"""
+        <div style="background-color: #f0fff4; padding: 15px; border-radius: 8px; border-left: 5px solid #38a169;">
+            <strong>Signed by:</strong> {_safe(signoff.get('signed_by_name'))} ({_safe(signoff.get('signed_by_role'))})<br>
+            <strong>Date:</strong> {_safe(signoff.get('signed_at'))}<br>
+            <strong>Notes:</strong> {_safe(signoff.get('signoff_notes'))}
+        </div>
+        """, unsafe_allow_html=True)
 else:
-    st.info("Not yet signed off.")
+    st.info("Pending final sign-off.")
 
-# Attachments
-st.markdown("### Attachments")
-media_df = db.fetch_job_card_media(jc_id_int)
-if media_df is None or media_df.empty:
-    st.info("No attachments.")
-else:
-    cols = st.columns(3)
-    for idx, row in media_df.reset_index(drop=True).iterrows():
-        with cols[idx % 3]:
-            m_type = row.get("media_type")
-            blob = row.get("media_blob")
-            fname = row.get("filename") or "attachment"
-            st.caption(fname)
-
-            if blob is None:
-                st.info("Attachment unavailable.")
-                continue
-
-            if m_type == "image":
-                st.image(BytesIO(blob), use_container_width=True)
-            elif m_type == "video":
-                st.video(BytesIO(blob))
-            else:
-                st.download_button(
-                    "Download",
-                    data=blob,
-                    file_name=fname,
-                    key=f"dl_pub_{jc_id_int}_{idx}",
-                    use_container_width=True,
-                )
-
-# PDF download
-st.divider()
-st.markdown("### Download PDF")
-
-attachments_list = []
+# 3. Attachments Gallery
+st.markdown("### Project Media")
+media_df = db.fetch_job_card_media(int(jc_id))
 if media_df is not None and not media_df.empty:
-    for _, r in media_df.iterrows():
-        attachments_list.append(
-            {
-                "filename": r.get("filename", "attachment"),
-                "media_type": r.get("media_type", "file"),
-            }
-        )
+    tabs = st.tabs(["Gallery", "Downloads"])
+    
+    with tabs[0]:
+        cols = st.columns(3)
+        for idx, row in media_df.reset_index(drop=True).iterrows():
+            with cols[idx % 3]:
+                if row.get("media_type") == "image":
+                    st.image(BytesIO(row["media_blob"]), use_container_width=True)
+                elif row.get("media_type") == "video":
+                    st.video(BytesIO(row["media_blob"]))
+    
+    with tabs[1]:
+        for idx, row in media_df.iterrows():
+            st.download_button(f"📄 Download {row.get('filename', 'File')}", 
+                             data=row["media_blob"], 
+                             file_name=row.get("filename"),
+                             key=f"dl_{idx}")
+else:
+    st.write("No media attachments available.")
+
+# 4. Final Export
+st.markdown("---")
+attachments_list = [{"filename": r.get("filename", "attachment"), "media_type": r.get("media_type", "file")} 
+                    for _, r in media_df.iterrows()] if media_df is not None else []
 
 pdf_bytes = build_job_card_pdf(
-    job_card=jc,
-    signoff=signoff,
-    attachments=attachments_list,
-    brand_title="Apricot Property Solutions",
-    logo_path="logo1.png",
+    job_card=jc, signoff=signoff, attachments=attachments_list,
+    brand_title="Apricot Property Solutions", logo_path="logo1.png"
 )
 
 st.download_button(
-    "⬇️ Download Job Card PDF",
+    "⬇️ Download Official Job Card (PDF)",
     data=pdf_bytes,
-    file_name=f"job_card_{jc_id_int}.pdf",
+    file_name=f"JobCard_{jc_id}.pdf",
     mime="application/pdf",
     use_container_width=True,
-    key=f"pub_pdf_{jc_id_int}",
+    type="primary"
 )

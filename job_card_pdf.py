@@ -1,4 +1,4 @@
-# job_card_pdf.py  (FULL FIXED)
+# job_card_pdf.py  (UPDATED - removed "Assigned To")
 import os
 from io import BytesIO
 from datetime import datetime
@@ -19,7 +19,7 @@ def build_job_card_pdf(
     attachments: Optional[List[Dict[str, Any]]] = None,
     brand_title: str = "Apricot Property Solutions",
     logo_path: str = "logo1.png",
-    footer_text: str = "Apricot Property Solutions • Nairobi, Kenya • support@apricotproperty.co.ke • +254 XXX XXX XXX",
+    footer_text: str = "Apricot Property Solutions • Nairobi, Kenya • support@apricotproperty.co.ke • +254 735 524 444",
 ) -> bytes:
     """
     Returns PDF bytes.
@@ -89,7 +89,6 @@ def build_job_card_pdf(
         if not v:
             return "—"
         try:
-            # v may be datetime, str, etc.
             if hasattr(v, "strftime"):
                 return v.strftime("%Y-%m-%d %H:%M")
             return str(v)
@@ -152,22 +151,27 @@ def build_job_card_pdf(
     ]))
     elements.append(header_table)
 
-    elements.append(HRFlowable(width="100%", thickness=1.2, color=colors.HexColor("#1A237E"),
-                               spaceBefore=6, spaceAfter=10))
+    elements.append(HRFlowable(
+        width="100%",
+        thickness=1.2,
+        color=colors.HexColor("#1A237E"),
+        spaceBefore=6,
+        spaceAfter=10
+    ))
 
     # Title
-    elements.append(Paragraph(f"JOB CARD", styles["Heading2"]))
+    elements.append(Paragraph("JOB CARD", styles["Heading2"]))
     elements.append(Paragraph(f"Reference ID: <b>#{_safe(job_card.get('id'))}</b>", styles["MetaSmall"]))
     elements.append(Spacer(1, 10))
 
-    # Key details grid
+    # Key details grid (Assigned To removed)
     data = [
         ["Ticket:", f"#{_safe(job_card.get('ticket_id'))}" if job_card.get("ticket_id") else "Standalone",
          "Status:", _safe(job_card.get("status")).upper()],
         ["Property:", _safe(job_card.get("property_name")),
          "Unit:", _safe(job_card.get("unit_number"))],
-        ["Assigned To:", _safe(job_card.get("assigned_to_name")),
-         "Created By:", _safe(job_card.get("created_by_name"))],
+        ["Created By:", _safe(job_card.get("created_by_name")),
+         "Created At:", _dt(job_card.get("created_at"))],
         ["Est. Cost:", _money(job_card.get("estimated_cost")),
          "Actual Cost:", _money(job_card.get("actual_cost"))],
     ]
@@ -212,8 +216,13 @@ def build_job_card_pdf(
 
     # Signoff section
     elements.append(Spacer(1, 14))
-    elements.append(HRFlowable(width="100%", thickness=0.6, color=colors.HexColor("#C7C7C7"),
-                               spaceBefore=4, spaceAfter=8))
+    elements.append(HRFlowable(
+        width="100%",
+        thickness=0.6,
+        color=colors.HexColor("#C7C7C7"),
+        spaceBefore=4,
+        spaceAfter=8
+    ))
     elements.append(Paragraph("Official Sign-Off", styles["SectionHeader"]))
 
     if signoff:
@@ -234,16 +243,12 @@ def build_job_card_pdf(
             elements.append(Paragraph(f"<b>Notes:</b> {_safe(signoff.get('signoff_notes'))}", styles["BodySmall"]))
 
         # Signature rendering:
-        # Supported:
-        #  - signoff["signature_path"] -> file path
-        #  - signoff["signature_blob"] -> bytes (we write temp file only if needed)
         sig_path = signoff.get("signature_path")
         sig_blob = signoff.get("signature_blob")
         tmp_path = None
 
         try:
             if not sig_path and sig_blob:
-                # write a temp signature file (png/jpg) for reportlab Image
                 tmp_path = f"/tmp/jobcard_sig_{job_card.get('id')}.png"
                 with open(tmp_path, "wb") as f:
                     f.write(sig_blob)
@@ -254,8 +259,6 @@ def build_job_card_pdf(
                 elements.append(Paragraph("Signature:", styles["MetaSmall"]))
                 elements.append(Image(sig_path, width=45 * mm, height=18 * mm, kind="proportional"))
         finally:
-            # don't delete immediately; ReportLab may read during build.
-            # You can cleanup tmp files via cron/job if desired.
             pass
 
     else:

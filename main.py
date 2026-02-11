@@ -973,3 +973,7 @@ elif selected == "KPI Dashboard":
         st.stop()
 
     KPIDashboard(db).render()
+
+
+elif selected == "Job Cards":
+    job_cards_page()

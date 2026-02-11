@@ -1,6 +1,10 @@
+# job_cards.py  (FULL UPDATED)
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+
+from job_card_pdf import build_job_card_pdf
+
 
 def job_cards_page(db):
     st.title("🧾 Job Cards")
@@ -40,7 +44,8 @@ def job_cards_page(db):
                     copy_media=copy_media,
                 )
                 st.success(f"✅ Job Card created: #{jc_id}")
-                st.session_state["open_job_card_id"] = jc_id
+                st.session_state["open_job_card_id"] = int(jc_id)
+                st.session_state["job_card_view_id"] = int(jc_id)
 
         else:
             properties = db.get_all_ticket_properties()
@@ -78,13 +83,13 @@ def job_cards_page(db):
                         estimated_cost=float(estimated_cost) if estimated_cost > 0 else None,
                     )
                     st.success(f"✅ Job Card created: #{jc_id}")
-                    st.session_state["open_job_card_id"] = jc_id
+                    st.session_state["open_job_card_id"] = int(jc_id)
+                    st.session_state["job_card_view_id"] = int(jc_id)
 
-        # Quick open if created
         open_id = st.session_state.get("open_job_card_id")
         if open_id:
             st.divider()
-            st.info(f"Open Job Card #{open_id} from the Manage tab to view details.")
+            st.info(f"✅ Created. Switch to **Manage Job Cards** tab to view Job Card #{open_id}.")
 
     # ---------------------------------------------------------------------
     # TAB 2: MANAGE
@@ -98,7 +103,9 @@ def job_cards_page(db):
         with c2:
             has_ticket = st.selectbox("Linked to Ticket?", ["All", "Yes", "No"])
         with c3:
-            property_id = st.selectbox("Property", ["All"] + [p["id"] for p in db.get_all_ticket_properties()])
+            props = db.get_all_ticket_properties()
+            prop_ids = [p["id"] for p in props]
+            property_id = st.selectbox("Property", ["All"] + prop_ids)
 
         df = db.fetch_job_cards(
             status=status,
@@ -112,94 +119,184 @@ def job_cards_page(db):
 
         st.dataframe(df, use_container_width=True, hide_index=True)
 
-        job_card_id = st.number_input("Open Job Card ID", min_value=1, step=1)
+        # Default open (after create)
+        default_open = int(st.session_state.get("job_card_view_id") or 0)
+
+        job_card_id = st.number_input(
+            "Open Job Card ID",
+            min_value=1,
+            step=1,
+            value=(default_open if default_open > 0 else 1),
+        )
         if st.button("Open Job Card", use_container_width=True):
             st.session_state["job_card_view_id"] = int(job_card_id)
 
         view_id = st.session_state.get("job_card_view_id")
-        if view_id:
-            st.divider()
-            jc = db.get_job_card(view_id)
-            if not jc:
-                st.error("Job card not found.")
-                return
+        if not view_id:
+            return
 
-            st.markdown(f"## 🧾 Job Card #{jc['id']}")
-            st.write(f"**Status:** {jc['status']}")
-            st.write(f"**Ticket:** {jc['ticket_id'] if jc.get('ticket_id') else '— Standalone —'}")
-            st.write(f"**Property:** {jc.get('property_name') or '—'}  |  **Unit:** {jc.get('unit_number') or '—'}")
-            st.write(f"**Assigned:** {jc.get('assigned_to_name') or '—'}")
+        st.divider()
 
-            st.markdown("### Description")
-            st.write(jc["description"])
+        jc = db.get_job_card(int(view_id))
+        if not jc:
+            st.error("Job card not found.")
+            return
 
-            st.markdown("### Activities")
-            st.code(jc.get("activities") or "—", language="text")
+        st.markdown(f"## 🧾 Job Card #{jc['id']}")
+        st.write(f"**Status:** {jc['status']}")
+        st.write(f"**Ticket:** {jc['ticket_id'] if jc.get('ticket_id') else '— Standalone —'}")
+        st.write(f"**Property:** {jc.get('property_name') or '—'}  |  **Unit:** {jc.get('unit_number') or '—'}")
+        st.write(f"**Assigned:** {jc.get('assigned_to_name') or '—'}")
 
-            st.markdown("### Costs")
-            est = st.number_input("Estimated cost", min_value=0.0, step=100.0, value=float(jc["estimated_cost"] or 0))
-            act = st.number_input("Actual cost", min_value=0.0, step=100.0, value=float(jc["actual_cost"] or 0))
-            if st.button("Save Costs"):
-                db.update_job_card_costs(view_id, est if est > 0 else None, act if act > 0 else None)
-                st.success("✅ Costs updated")
+        # -------------------------
+        # Description / Activities
+        # -------------------------
+        st.markdown("### Description")
+        st.write(jc.get("description") or "—")
 
-            st.markdown("### Update Status")
-            new_status = st.selectbox(
-                "Status",
-                ["Open","In Progress","Completed","Signed Off","Cancelled"],
-                index=["Open","In Progress","Completed","Signed Off","Cancelled"].index(jc["status"])
+        st.markdown("### Activities")
+        st.code(jc.get("activities") or "—", language="text")
+
+        # -------------------------
+        # Costs
+        # -------------------------
+        st.markdown("### Costs")
+        est = st.number_input(
+            "Estimated cost",
+            min_value=0.0,
+            step=100.0,
+            value=float(jc.get("estimated_cost") or 0),
+            key=f"jc_est_{view_id}",
+        )
+        act = st.number_input(
+            "Actual cost",
+            min_value=0.0,
+            step=100.0,
+            value=float(jc.get("actual_cost") or 0),
+            key=f"jc_act_{view_id}",
+        )
+        if st.button("Save Costs", use_container_width=True, key=f"jc_save_costs_{view_id}"):
+            db.update_job_card_costs(int(view_id), est if est > 0 else None, act if act > 0 else None)
+            st.success("✅ Costs updated")
+            st.rerun()
+
+        # -------------------------
+        # Status
+        # -------------------------
+        st.markdown("### Update Status")
+        status_list = ["Open", "In Progress", "Completed", "Signed Off", "Cancelled"]
+        new_status = st.selectbox(
+            "Status",
+            status_list,
+            index=status_list.index(jc["status"]) if jc.get("status") in status_list else 0,
+            key=f"jc_status_{view_id}",
+        )
+        if st.button("Save Status", use_container_width=True, key=f"jc_save_status_{view_id}"):
+            db.update_job_card_status(int(view_id), new_status)
+            st.success("✅ Status updated")
+            st.rerun()
+
+        # -------------------------
+        # Attachments
+        # -------------------------
+        st.markdown("### Attachments")
+        media_df = db.fetch_job_card_media(int(view_id))
+        if media_df is None or media_df.empty:
+            st.info("No media attached to this job card.")
+        else:
+            cols = st.columns(3)
+            for idx, row in media_df.reset_index(drop=True).iterrows():
+                with cols[idx % 3]:
+                    m_type = row["media_type"]
+                    m_blob = row["media_blob"]
+                    f_name = row.get("filename", "attachment")
+
+                    st.caption(f_name)
+                    if m_type == "image":
+                        st.image(BytesIO(m_blob), use_container_width=True)
+                    elif m_type == "video":
+                        st.video(BytesIO(m_blob))
+                    else:
+                        st.download_button(
+                            "📥 Download",
+                            data=m_blob,
+                            file_name=f_name,
+                            key=f"jc_dl_{view_id}_{idx}",
+                            use_container_width=True,
+                        )
+
+        up = st.file_uploader("Upload new attachment", type=None, key=f"jc_upload_{view_id}")
+        if up is not None:
+            blob = up.read()
+            guessed_type = (
+                "image" if up.type and up.type.startswith("image/")
+                else ("video" if up.type and up.type.startswith("video/")
+                      else "document")
             )
-            if st.button("Save Status"):
-                db.update_job_card_status(view_id, new_status)
-                st.success("✅ Status updated")
+            db.add_job_card_media(int(view_id), guessed_type, blob, up.name)
+            st.success("✅ Uploaded")
+            st.rerun()
 
-            st.markdown("### Attachments")
-            media_df = db.fetch_job_card_media(view_id)
-            if media_df is None or media_df.empty:
-                st.info("No media attached to this job card.")
+        # -------------------------
+        # Sign Off
+        # -------------------------
+        st.markdown("### Sign Off")
+        signed_by = st.text_input("Signed by name", key=f"jc_signed_by_{view_id}")
+        role = st.text_input("Role (Tenant/Owner/Supervisor/etc)", value="Tenant", key=f"jc_role_{view_id}")
+        notes = st.text_area("Sign-off notes (optional)", key=f"jc_notes_{view_id}")
+        sig_file = st.file_uploader("Signature file (optional)", type=None, key=f"jc_sig_{view_id}")
+
+        if st.button("Sign Off Job Card", use_container_width=True, key=f"jc_signoff_{view_id}"):
+            if not signed_by.strip():
+                st.error("Signed by name is required.")
             else:
-                cols = st.columns(3)
-                for idx, row in media_df.reset_index(drop=True).iterrows():
-                    with cols[idx % 3]:
-                        m_type = row["media_type"]
-                        m_blob = row["media_blob"]
-                        f_name = row.get("filename", "attachment")
-
-                        st.caption(f_name)
-                        if m_type == "image":
-                            st.image(BytesIO(m_blob), use_container_width=True)
-                        elif m_type == "video":
-                            st.video(BytesIO(m_blob))
-                        else:
-                            st.download_button("📥 Download", data=m_blob, file_name=f_name, key=f"jc_dl_{view_id}_{idx}")
-
-            up = st.file_uploader("Upload new attachment", type=None)
-            if up is not None:
-                blob = up.read()
-                guessed_type = "image" if up.type and up.type.startswith("image/") else ("video" if up.type and up.type.startswith("video/") else "document")
-                db.add_job_card_media(view_id, guessed_type, blob, up.name)
-                st.success("✅ Uploaded")
+                sig_blob = sig_file.read() if sig_file else None
+                sig_name = sig_file.name if sig_file else None
+                db.signoff_job_card(
+                    int(view_id),
+                    signed_by_name=signed_by.strip(),
+                    signed_by_role=role.strip() if role.strip() else None,
+                    signoff_notes=notes.strip() if notes.strip() else None,
+                    signature_blob=sig_blob,
+                    signature_filename=sig_name,
+                )
+                st.success("✅ Signed off and locked")
                 st.rerun()
 
-            st.markdown("### Sign Off")
-            signed_by = st.text_input("Signed by name")
-            role = st.text_input("Role (Tenant/Owner/Supervisor/etc)", value="Tenant")
-            notes = st.text_area("Sign-off notes (optional)")
-            sig_file = st.file_uploader("Signature file (optional)", type=None, key="sig_up")
+        # -------------------------
+        # PDF EXPORT (Apricot branding + logo1)
+        # -------------------------
+        st.divider()
+        st.markdown("### 📄 Download Job Card PDF")
 
-            if st.button("Sign Off Job Card", use_container_width=True):
-                if not signed_by.strip():
-                    st.error("Signed by name is required.")
-                else:
-                    sig_blob = sig_file.read() if sig_file else None
-                    sig_name = sig_file.name if sig_file else None
-                    db.signoff_job_card(
-                        view_id,
-                        signed_by_name=signed_by.strip(),
-                        signed_by_role=role.strip() if role.strip() else None,
-                        signoff_notes=notes.strip() if notes.strip() else None,
-                        signature_blob=sig_blob,
-                        signature_filename=sig_name,
-                    )
-                    st.success("✅ Signed off and locked")
-                    st.rerun()
+        # Fetch signoff (if your conn.py has this method)
+        try:
+            signoff = db.get_job_card_signoff(int(view_id))
+        except Exception:
+            signoff = None
+
+        # Attachment list (metadata only)
+        attachments_list = []
+        if media_df is not None and not media_df.empty:
+            for _, r in media_df.iterrows():
+                attachments_list.append({
+                    "filename": r.get("filename", "attachment"),
+                    "media_type": r.get("media_type", "file"),
+                })
+
+        pdf_bytes = build_job_card_pdf(
+            job_card=jc,
+            signoff=signoff,
+            attachments=attachments_list,
+            brand_title="Apricot Property Solutions",
+            logo_path="logo1.png",
+        )
+
+        st.download_button(
+            "⬇️ Download Job Card PDF",
+            data=pdf_bytes,
+            file_name=f"job_card_{int(view_id)}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key=f"download_jc_pdf_{view_id}",
+        )

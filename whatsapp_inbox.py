@@ -268,8 +268,9 @@ def whatsapp_inbox_page(db):
         <head>
           <meta charset="utf-8" />
           <style>
+            html, body {{ height: 100%; }}
             body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#efeae2;}}
-            .wrap{{height:72vh;display:flex;flex-direction:column;border:1px solid #d1d7db;border-radius:12px;overflow:hidden;background:#efeae2;}}
+            .wrap{{height:100%;display:flex;flex-direction:column;border:1px solid #d1d7db;border-radius:12px;overflow:hidden;background:#efeae2;}}
             .head{{background:#075e54;color:#fff;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;}}
             .headL{{display:flex;align-items:center;gap:10px;min-width:0;}}
             .av{{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;background:{av_bg};}}

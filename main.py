@@ -1,3 +1,4 @@
+# main.py (FULL UPDATED)
 import streamlit as st
 
 # -----------------------------------------------------------------------------
@@ -6,17 +7,15 @@ import streamlit as st
 st.set_page_config(page_title="CRM Admin Portal", layout="wide")
 
 import pandas as pd
-import bcrypt
 from io import BytesIO
-from sqlalchemy.sql import text
-
+from user_registration import user_registration_page
 from job_cards import job_cards_page
 from job_card_pdf import build_job_card_pdf  # ✅ needed for PDF export
+from whatsapp_inbox import whatsapp_inbox_page
 
 from conn import Conn
 from license import LicenseManager
 from login import login
-from user_registration import user_registration_page
 from create_ticket import create_ticket
 from edit_admins import edit_admins
 from edit_properties import edit_properties
@@ -26,6 +25,24 @@ from kpi_dashboard import KPIDashboard
 
 from streamlit_option_menu import option_menu
 
+
+# -----------------------------------------------------------------------------
+# ✅ Helpers
+# -----------------------------------------------------------------------------
+def qp_get(key: str, default=None):
+    """
+    Streamlit query params can return str or list[str] depending on version.
+    Normalize to a single string (or default).
+    """
+    try:
+        v = st.query_params.get(key, default)
+        if isinstance(v, list):
+            return v[0] if v else default
+        return v
+    except Exception:
+        return default
+
+
 # -----------------------------------------------------------------------------
 # ✅ Init DB
 # -----------------------------------------------------------------------------
@@ -33,39 +50,23 @@ db = Conn()
 
 # -----------------------------------------------------------------------------
 # ✅ PUBLIC BYPASS (Job Card Verification)
-# IMPORTANT:
-# Streamlit Cloud often loads the main script first even when visiting /verify_job_card
-# So we support BOTH URL styles:
-#   A) https://ticketingapricot.streamlit.app/?page=verify_job_card&id=184&t=TOKEN
-#   B) https://ticketingapricot.streamlit.app/verify_job_card?id=184&t=TOKEN
-#
-# We detect either case and switch to the public page BEFORE license/login.
+# Supports BOTH URL styles:
+#   A) https://.../?page=verify_job_card&id=184&t=TOKEN
+#   B) https://.../verify_job_card?id=184&t=TOKEN
 # -----------------------------------------------------------------------------
-params = st.query_params
+page_param = qp_get("page")
+id_param = qp_get("id")
+t_param = qp_get("t")
 
-# Case A (query param router)
-is_public_query = (params.get("page") == "verify_job_card")
+is_public_query = (page_param == "verify_job_card")
+# For "path-style", Streamlit may still load main; id+t is a strong signal
+is_public_path = bool(id_param) and bool(t_param) and (page_param is None)
 
-# Case B (path-based) - Streamlit sets page_script_hash for multipage routing
-# NOTE: Not always available on all versions, so we guard it.
-is_public_path = False
-try:
-    ctx = st.runtime.scriptrunner.get_script_run_ctx()
-    if ctx is not None:
-        # Best-effort: if current page is already verify_job_card, do nothing.
-        # If main page is being hit, ctx.page_script_hash != pages/verify_job_card hash
-        # so we still switch when we see id+t in the URL (strong signal).
-        is_public_path = bool(params.get("id")) and bool(params.get("t")) and (params.get("page") is None)
-except Exception:
-    # If ctx isn't available, we can still use id+t as a strong signal
-    is_public_path = bool(params.get("id")) and bool(params.get("t")) and (params.get("page") is None)
-
-# If either style is detected, go to the public page
 if is_public_query or is_public_path:
     st.switch_page("pages/verify_job_card.py")
 
 # -----------------------------------------------------------------------------
-# Session State for Authentication
+# Session State defaults
 # -----------------------------------------------------------------------------
 st.session_state.setdefault("authenticated", False)
 st.session_state.setdefault("admin_name", "")
@@ -117,6 +118,7 @@ if st.session_state.admin_role == "Admin":
         ("Register User", "person-plus"),
         ("Create Property", "building"),
         ("Job Cards", "file-text"),
+        ("WhatsApp Inbox", "chat-dots")
     ]
     for label, icon in reversed(role_items):
         menu_options.insert(1, label)
@@ -129,11 +131,13 @@ elif st.session_state.admin_role == "Super Admin":
         ("Register User", "person-fill-add"),
         ("Edit/Delete User", "person-fill-x"),
         ("Create Property", "building-add"),
+        ("Job Cards", "file-text"),
+        ("WhatsApp Inbox", "chat-dots"),
         ("Edit/Delete Property", "building-gear"),
         ("Send Bulk Message", "envelope-paper-fill"),
         ("Admin Reassignment History", "clock-history"),
-        ("KPI Dashboard", "speedometer2"),
-        ("Job Cards", "file-text"),
+        ("KPI Dashboard", "speedometer2")
+        
     ]
     for label, icon in reversed(role_items):
         menu_options.insert(1, label)
@@ -244,7 +248,7 @@ elif selected == "Dashboard":
 
     if st.session_state.tickets_cache is None or current_hash != st.session_state.last_hash:
         if st.session_state.admin_role in ("Admin", "Super Admin"):
-            st.session_state.tickets_cache = db.fetch_tickets("All")
+            st.session_state.tickets_cache = db.fetch_tickets(property="All")
         else:
             st.session_state.tickets_cache = db.fetch_open_tickets(st.session_state.admin_id)
 
@@ -431,7 +435,7 @@ elif selected == "Dashboard":
         unit_q = st.session_state.filter_unit
 
     with f3:
-        st.button("Clear filters", width="stretch", on_click=clear_filters)
+        st.button("Clear filters", use_container_width=True, on_click=clear_filters)
 
     with f4:
         options = ["All", "Upcoming", "Due today", "Overdue", "No due date"]
@@ -465,8 +469,7 @@ elif selected == "Dashboard":
     display_df = display_df.drop(columns=["_due_date_only"], errors="ignore")
 
     styled_df = display_df.style.apply(style_due_rows, axis=1)
-
-    st.dataframe(styled_df, width="stretch", hide_index=True)
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     # ---- Ticket Selection ----
     ticket_ids = tickets_df["id"].tolist()
@@ -535,7 +538,7 @@ elif selected == "Dashboard":
             index=["Open", "In Progress", "Resolved"].index(selected_ticket["status"]),
             key=f"status_select_{ticket_id}",
         )
-        if st.button("Update Status", key=f"btn_update_status_{ticket_id}", width="stretch"):
+        if st.button("Update Status", key=f"btn_update_status_{ticket_id}", use_container_width=True):
             db.update_ticket_status(ticket_id, new_status)
             st.session_state.tickets_cache = None
             st.session_state.last_hash = db.get_tickets_hash()
@@ -546,7 +549,7 @@ elif selected == "Dashboard":
 
         st.markdown("### ✍️ Add Ticket Update")
         update_text = st.text_area("Update text", key=f"update_text_{ticket_id}")
-        if st.button("Submit Update", key=f"btn_submit_update_{ticket_id}", width="stretch"):
+        if st.button("Submit Update", key=f"btn_submit_update_{ticket_id}", use_container_width=True):
             if not update_text.strip():
                 st.error("⚠️ Please provide update text.")
             else:
@@ -582,7 +585,7 @@ elif selected == "Dashboard":
                 )
                 reassign_reason = st.text_area("Reason for Reassignment", key=f"reassign_reason_{ticket_id}")
 
-                if st.button("Reassign Ticket", key=f"btn_reassign_{ticket_id}", width="stretch"):
+                if st.button("Reassign Ticket", key=f"btn_reassign_{ticket_id}", use_container_width=True):
                     if not reassign_reason.strip():
                         st.error("⚠️ Please provide a reason.")
                     elif current_assigned_id is None:
@@ -614,7 +617,7 @@ elif selected == "Dashboard":
 
         due_date = st.date_input("Select Due Date", value=default_due, key=f"due_date_in_{ticket_id}")
 
-        if st.button("Update Due Date", key=f"btn_due_date_{ticket_id}", width="stretch"):
+        if st.button("Update Due Date", key=f"btn_due_date_{ticket_id}", use_container_width=True):
             db.update_ticket_due_date(ticket_id, due_date)
             st.session_state.tickets_cache = None
             st.session_state.last_hash = db.get_tickets_hash()
@@ -628,7 +631,6 @@ elif selected == "Dashboard":
         st.markdown("### 🧾 Job Card")
 
         jc = db.get_job_card_by_ticket(ticket_id)
-
         JOB_STATUS_LIST = ["Open", "In Progress", "Completed", "Signed Off", "Cancelled"]
 
         if not jc:
@@ -638,7 +640,7 @@ elif selected == "Dashboard":
             est_cost = st.number_input("Estimated cost (optional)", min_value=0.0, step=100.0, key=f"jc_est_{ticket_id}")
             copy_media = st.checkbox("Copy ticket attachments", value=True, key=f"jc_copy_{ticket_id}")
 
-            if st.button("Create Job Card from this Ticket", key=f"create_jc_{ticket_id}", width="stretch"):
+            if st.button("Create Job Card from this Ticket", key=f"create_jc_{ticket_id}", use_container_width=True):
                 jc_id = db.create_job_card_from_ticket(
                     ticket_id=ticket_id,
                     created_by_admin_id=st.session_state.get("admin_id"),
@@ -655,7 +657,6 @@ elif selected == "Dashboard":
             jc_id = int(jc["id"])
             st.success(f"✅ Job Card linked: #{jc_id}")
 
-            # lock UI if signed off
             is_signed_off = (str(jc.get("status") or "").strip().lower() == "signed off")
 
             colA, colB = st.columns([1.2, 0.8])
@@ -734,7 +735,7 @@ elif selected == "Dashboard":
             with csave:
                 if st.button(
                     "💾 Save Job Card Changes",
-                    width="stretch",
+                    use_container_width=True,
                     key=f"save_jc_{jc_id}",
                     disabled=is_signed_off,
                 ):
@@ -753,7 +754,7 @@ elif selected == "Dashboard":
                     st.rerun()
 
             with copen:
-                if st.button("📂 Open in Job Cards Page", width="stretch", key=f"open_jc_{jc_id}"):
+                if st.button("📂 Open in Job Cards Page", use_container_width=True, key=f"open_jc_{jc_id}"):
                     st.session_state["job_card_view_id"] = jc_id
                     st.session_state["open_job_card_id"] = jc_id
                     st.info("Go to Job Cards → Manage tab to view it.")
@@ -762,27 +763,21 @@ elif selected == "Dashboard":
             st.divider()
             st.markdown("### 📄 Download Job Card PDF")
 
-            signoff = None
             try:
                 signoff = db.get_job_card_signoff(jc_id)
             except Exception:
                 signoff = None
 
-            # attachments list for pdf (names only)
-            ticket_media_df = None
             try:
-                ticket_media_df = db.fetch_job_card_media(jc_id)
+                jc_media_df = db.fetch_job_card_media(jc_id)
             except Exception:
-                ticket_media_df = None
+                jc_media_df = None
 
             attachments = []
-            if ticket_media_df is not None and not ticket_media_df.empty:
-                for _, r in ticket_media_df.iterrows():
+            if jc_media_df is not None and not jc_media_df.empty:
+                for _, r in jc_media_df.iterrows():
                     attachments.append(
-                        {
-                            "filename": r.get("filename", "attachment"),
-                            "media_type": r.get("media_type", "file"),
-                        }
+                        {"filename": r.get("filename", "attachment"), "media_type": r.get("media_type", "file")}
                     )
 
             pdf_bytes = build_job_card_pdf(
@@ -798,7 +793,7 @@ elif selected == "Dashboard":
                 data=pdf_bytes,
                 file_name=f"job_card_{jc_id}.pdf",
                 mime="application/pdf",
-                width="stretch",
+                use_container_width=True,
                 key=f"dl_jobcard_pdf_{jc_id}",
             )
 
@@ -806,7 +801,6 @@ elif selected == "Dashboard":
             st.divider()
             st.markdown("### ✍️ Sign-Off")
 
-            existing_signoff = None
             try:
                 existing_signoff = db.get_job_card_signoff(jc_id)
             except Exception:
@@ -836,7 +830,7 @@ elif selected == "Dashboard":
                     )
                 notes = st.text_area("Sign-off notes (optional)", key=f"jc_sig_notes_{jc_id}")
 
-                if st.button("✅ Sign Off Job Card", key=f"jc_signoff_btn_{jc_id}", width="stretch"):
+                if st.button("✅ Sign Off Job Card", key=f"jc_signoff_btn_{jc_id}", use_container_width=True):
                     if not signed_by_name.strip():
                         st.error("Please enter who is signing off.")
                     else:
@@ -846,7 +840,6 @@ elif selected == "Dashboard":
                             signed_by_role=signed_by_role.strip() or "—",
                             signoff_notes=notes.strip() or None,
                         )
-                        # set status to Signed Off
                         db.update_job_card(
                             job_card_id=jc_id,
                             title=jc_title.strip() or None,
@@ -893,7 +886,7 @@ elif selected == "Dashboard":
                     )
 
                     if m_type == "image":
-                        st.image(BytesIO(m_blob), width="stretch")
+                        st.image(BytesIO(m_blob), use_container_width=True)
                     elif m_type == "video":
                         st.video(BytesIO(m_blob))
                     else:
@@ -902,7 +895,7 @@ elif selected == "Dashboard":
                             data=m_blob,
                             file_name=f_name,
                             key=f"dl_{ticket_id}_{idx}",
-                            width="stretch",
+                            use_container_width=True,
                         )
 
     # -------------------------------------------------------------------------
@@ -928,7 +921,6 @@ elif selected == "Dashboard":
                     st.caption(ts)
                     st.write(details)
 
-
 # -----------------------------------------------------------------------------
 # Create Ticket
 # -----------------------------------------------------------------------------
@@ -953,7 +945,7 @@ elif selected == "Send Bulk Message":
 
     notice_text = st.text_area("Notice Text", placeholder="Write your notice content here")
 
-    if st.button("Send Notice Template", width="stretch"):
+    if st.button("Send Notice Template", use_container_width=True):
         if not notice_text.strip():
             st.error("⚠️ Please enter the notice text.")
             st.stop()
@@ -981,8 +973,8 @@ elif selected == "Send Bulk Message":
             sent_results.append(
                 {
                     "name": user.get("name", "N/A"),
-                    "status": status_text,
                     "whatsapp_number": user["whatsapp_number"],
+                    "status": status_text,
                 }
             )
 
@@ -1004,15 +996,7 @@ elif selected == "Send Bulk Message":
 
         st.subheader("📋 Send Status Report")
         report_df = pd.DataFrame(sent_results)
-
-        cols = report_df.columns.tolist()
-        if "status" in cols and "whatsapp_number" in cols:
-            i_status = cols.index("status")
-            i_wa = cols.index("whatsapp_number")
-            cols[i_status], cols[i_wa] = cols[i_wa], cols[i_status]
-            report_df = report_df[cols]
-
-        st.dataframe(report_df, width="stretch", hide_index=True)
+        st.dataframe(report_df, use_container_width=True, hide_index=True)
 
         csv_data = report_df.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -1020,7 +1004,7 @@ elif selected == "Send Bulk Message":
             data=csv_data,
             file_name=f"notice_send_report_{property_name.replace(' ', '_')}.csv",
             mime="text/csv",
-            width="stretch",
+            use_container_width=True,
         )
 
 # -----------------------------------------------------------------------------
@@ -1030,7 +1014,7 @@ elif selected == "Admin Reassignment History":
     st.title("📜 Admin Reassignment History")
     reassign_log_df = db.fetch_admin_reassignment_log()
     if reassign_log_df is not None and not reassign_log_df.empty:
-        st.dataframe(reassign_log_df, width="stretch", hide_index=True)
+        st.dataframe(reassign_log_df, use_container_width=True, hide_index=True)
     else:
         st.warning("⚠️ No reassignments have been logged yet.")
 
@@ -1064,6 +1048,12 @@ elif selected == "Create Property":
                 st.error(msg)
 
 # -----------------------------------------------------------------------------
+# Register User
+# -----------------------------------------------------------------------------
+elif selected == "Register User":
+    user_registration_page()
+
+# -----------------------------------------------------------------------------
 # Edit/Delete User
 # -----------------------------------------------------------------------------
 elif selected == "Edit/Delete User":
@@ -1094,7 +1084,6 @@ elif selected == "KPI Dashboard":
     if st.session_state.get("admin_role") != "Super Admin":
         st.error("⛔ You do not have permission to access this page.")
         st.stop()
-
     KPIDashboard(db).render()
 
 # -----------------------------------------------------------------------------
@@ -1102,3 +1091,10 @@ elif selected == "KPI Dashboard":
 # -----------------------------------------------------------------------------
 elif selected == "Job Cards":
     job_cards_page(db)
+
+
+# -----------------------------------------------------------------------------
+# whatsapp
+# -----------------------------------------------------------------------------
+elif selected == "WhatsApp Inbox":
+    whatsapp_inbox_page(db)

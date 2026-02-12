@@ -292,7 +292,7 @@ def whatsapp_inbox_page(db):
           <meta charset="utf-8" />
           <style>
             html, body {{ height: 100%; }}
-            body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#efeae2; overflow:hidden;}}
+            body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#efeae2; https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png; overflow:hidden;}}
 
             .wrap{{height:100%;display:flex;flex-direction:column;border:1px solid #d1d7db;border-radius:12px;overflow:hidden;background:#efeae2;}}
             .head{{background:#075e54;color:#fff;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;}}

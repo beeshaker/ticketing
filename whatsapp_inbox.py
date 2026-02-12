@@ -11,6 +11,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import html
 
 # -----------------------------------------------------------------------------
 # Timezone: Kenya (Africa/Nairobi)
@@ -40,16 +41,120 @@ def whatsapp_inbox_page(db):
     st.session_state.setdefault("wa_msg_cache", None)
 
     # -------------------------------------------------------------------------
+    # WhatsApp-like CSS
+    # -------------------------------------------------------------------------
+    st.markdown(
+        """
+        <style>
+        /* Page spacing */
+        .wa-wrap {padding: 6px 0 0 0;}
+        .wa-title {font-size: 34px; font-weight: 800; margin-bottom: 4px;}
+        .wa-sub {color: rgba(0,0,0,0.55); margin-bottom: 14px;}
+
+        /* Chat panel */
+        .wa-chat {
+            height: 560px;
+            overflow-y: auto;
+            padding: 18px 14px;
+            border-radius: 14px;
+            background: linear-gradient(0deg, rgba(0,0,0,0.02), rgba(0,0,0,0.02)),
+                        url("https://i.imgur.com/8Km9tLL.png");
+            background-size: 340px;
+            border: 1px solid rgba(0,0,0,0.08);
+        }
+
+        /* Bubble rows */
+        .wa-row {
+            display: flex;
+            margin: 6px 0;
+        }
+        .wa-row.in {justify-content: flex-start;}
+        .wa-row.out {justify-content: flex-end;}
+
+        /* Bubbles */
+        .wa-bubble {
+            max-width: 78%;
+            padding: 10px 12px 18px 12px;
+            border-radius: 14px;
+            font-size: 14px;
+            line-height: 1.35;
+            position: relative;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.05);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .wa-in {
+            background: white;
+            border: 1px solid rgba(0,0,0,0.08);
+            border-top-left-radius: 8px;
+        }
+        .wa-out {
+            background: #DCF8C6; /* WhatsApp green */
+            border: 1px solid rgba(0,0,0,0.05);
+            border-top-right-radius: 8px;
+        }
+
+        /* Timestamp inside bubble */
+        .wa-ts {
+            position: absolute;
+            right: 10px;
+            bottom: 4px;
+            font-size: 11px;
+            color: rgba(0,0,0,0.45);
+        }
+
+        /* Meta chips (type/status/template) */
+        .wa-meta {
+            font-size: 11px;
+            color: rgba(0,0,0,0.55);
+            margin: 0 0 6px 0;
+        }
+        .wa-chip {
+            display:inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(0,0,0,0.06);
+            margin-right: 6px;
+        }
+
+        /* Context mini row under bubbles */
+        .wa-context {
+            margin-top: 6px;
+            font-size: 11px;
+            color: rgba(0,0,0,0.55);
+        }
+
+        /* Reply box styling hints */
+        .stTextArea textarea {
+            border-radius: 12px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # -------------------------------------------------------------------------
     # Helpers
     # -------------------------------------------------------------------------
     def _fmt_dt(x):
         if x is None or (isinstance(x, float) and pd.isna(x)):
-            return "—"
+            return ""
         if isinstance(x, str):
             return x
         if hasattr(x, "strftime"):
             return x.strftime("%Y-%m-%d %H:%M")
         return str(x)
+
+    def _fmt_time_only(x):
+        if x is None or (isinstance(x, float) and pd.isna(x)):
+            return ""
+        if isinstance(x, str):
+            # if it already comes formatted, best effort:
+            # show last 5 if looks like "... HH:MM"
+            return x[-5:] if len(x) >= 5 else x
+        if hasattr(x, "strftime"):
+            return x.strftime("%H:%M")
+        return ""
 
     def _safe_str(x):
         if x is None or (isinstance(x, float) and pd.isna(x)):
@@ -90,11 +195,91 @@ def whatsapp_inbox_page(db):
         # Oldest -> newest for display
         return df.sort_values("id", ascending=True).reset_index(drop=True)
 
+    def _render_thread(df_thread: pd.DataFrame):
+        """
+        Renders a WhatsApp-like scrollable thread using HTML bubbles.
+        """
+        if df_thread is None or df_thread.empty:
+            st.info("No messages yet for this conversation.")
+            return
+
+        chunks = ['<div class="wa-chat" id="wa-chat">']
+        for _, r in df_thread.iterrows():
+            direction = _safe_str(r.get("direction")).strip().lower()
+            is_out = direction == "outbound"
+            row_class = "out" if is_out else "in"
+            bubble_class = "wa-out" if is_out else "wa-in"
+
+            # Message bits
+            body = _safe_str(r.get("body_text") or "")
+            tpl = _safe_str(r.get("template_name") or "")
+            mtype = _safe_str(r.get("message_type") or "text")
+            status = _safe_str(r.get("status") or "")
+            err = _safe_str(r.get("error_text") or "")
+            ts = _fmt_time_only(r.get("created_at"))
+
+            # Escape for HTML safety
+            body_html = html.escape(body)
+            tpl_html = html.escape(tpl)
+
+            # Meta row (optional)
+            meta_bits = []
+            if mtype and mtype != "text":
+                meta_bits.append(f'<span class="wa-chip">{html.escape(mtype)}</span>')
+            if tpl:
+                meta_bits.append(f'<span class="wa-chip">template: {tpl_html}</span>')
+            if status:
+                meta_bits.append(f'<span class="wa-chip">status: {html.escape(status)}</span>')
+
+            meta_html = ""
+            if meta_bits:
+                meta_html = f'<div class="wa-meta">{"".join(meta_bits)}</div>'
+
+            # Main content
+            if body:
+                content = body_html
+            elif tpl:
+                content = f"📌 Template: <b>{tpl_html}</b>"
+            else:
+                content = "—"
+
+            # Error
+            if err:
+                content += f"\n\n⚠️ {html.escape(err)}"
+
+            chunks.append(
+                f"""
+                <div class="wa-row {row_class}">
+                  <div class="wa-bubble {bubble_class}">
+                    {meta_html}
+                    {content}
+                    <div class="wa-ts">{html.escape(ts)}</div>
+                  </div>
+                </div>
+                """
+            )
+
+        chunks.append("</div>")
+
+        # Auto-scroll to bottom (best-effort)
+        chunks.append(
+            """
+            <script>
+            const el = window.parent.document.querySelector('#wa-chat');
+            if (el) { el.scrollTop = el.scrollHeight; }
+            </script>
+            """
+        )
+
+        st.markdown("".join(chunks), unsafe_allow_html=True)
+
     # -------------------------------------------------------------------------
     # UI
     # -------------------------------------------------------------------------
-    st.title("💬 WhatsApp Inbox")
-    st.caption("Private admin inbox (accessible only via the admin portal menu).")
+    st.markdown('<div class="wa-wrap">', unsafe_allow_html=True)
+    st.markdown('<div class="wa-title">💬 WhatsApp Inbox</div>', unsafe_allow_html=True)
+    st.markdown('<div class="wa-sub">Private admin inbox (accessible only via the admin portal menu).</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     left, right = st.columns([0.75, 1.25], gap="large")
 
@@ -116,8 +301,12 @@ def whatsapp_inbox_page(db):
             st.info("No conversations found.")
             return
 
+        # If last_at is not a datetime, keep it as-is; conversion is best-effort
         if "last_at" in conv_df.columns:
-            conv_df["last_at"] = pd.to_datetime(conv_df["last_at"], errors="coerce")
+            try:
+                conv_df["last_at"] = pd.to_datetime(conv_df["last_at"], errors="coerce")
+            except Exception:
+                pass
 
         wa_numbers = conv_df["wa_number"].astype(str).tolist()
         if st.session_state.wa_selected_number is None or st.session_state.wa_selected_number not in wa_numbers:
@@ -159,6 +348,7 @@ def whatsapp_inbox_page(db):
         st.subheader(f"🗨️ Thread: {wa_number}")
 
         t1, t2, t3 = st.columns([1, 1, 1])
+
         with t1:
             if st.button("🔄 Refresh", use_container_width=True):
                 st.session_state.wa_msg_cache = None
@@ -198,11 +388,9 @@ def whatsapp_inbox_page(db):
         else:
             df_thread = st.session_state.wa_msg_cache
 
-        if df_thread is None or df_thread.empty:
-            st.info("No messages yet for this conversation.")
-        else:
+        # Load older messages (prepend)
+        if df_thread is not None and not df_thread.empty:
             oldest_id = int(df_thread["id"].min())
-
             if st.button("⬆️ Load older messages", use_container_width=True, key=f"wa_load_older_{wa_number}"):
                 older = db.fetch_conversation_messages(
                     wa_number=wa_number,
@@ -222,55 +410,8 @@ def whatsapp_inbox_page(db):
                     st.session_state.wa_msg_cache = combined
                     st.rerun()
 
-            st.divider()
-
-            # Render messages
-            for _, r in df_thread.iterrows():
-                direction = _safe_str(r.get("direction")).strip().lower()
-                who = "user" if direction == "inbound" else "assistant"
-                ts = _fmt_dt(r.get("created_at"))
-
-                body = _safe_str(r.get("body_text") or "")
-                tpl = _safe_str(r.get("template_name") or "")
-                mtype = _safe_str(r.get("message_type") or "text")
-                status = _safe_str(r.get("status") or "")
-                err = _safe_str(r.get("error_text") or "")
-                verify_url = _safe_str(r.get("verify_url") or "")
-
-                header_bits = [ts]
-                if mtype and mtype != "text":
-                    header_bits.append(mtype)
-                if tpl:
-                    header_bits.append(f"template: {tpl}")
-                if status:
-                    header_bits.append(f"status: {status}")
-
-                with st.chat_message(who):
-                    st.caption(" • ".join(header_bits))
-
-                    if body:
-                        st.write(body)
-                    elif tpl:
-                        st.write(f"📌 Template: **{tpl}**")
-                    else:
-                        st.write("—")
-
-                    if verify_url:
-                        st.code(verify_url)
-
-                    if err:
-                        st.error(err)
-
-                    ticket_id = r.get("ticket_id")
-                    job_card_id = r.get("job_card_id")
-                    if ticket_id or job_card_id:
-                        cA, cB = st.columns([1, 1])
-                        with cA:
-                            if ticket_id:
-                                st.caption(f"Ticket: #{int(ticket_id)}")
-                        with cB:
-                            if job_card_id:
-                                st.caption(f"Job Card: #{int(job_card_id)}")
+        # Render WhatsApp-like thread
+        _render_thread(df_thread)
 
         st.divider()
 
@@ -312,7 +453,6 @@ def whatsapp_inbox_page(db):
                     try:
                         now = kenya_now()
                         synthetic = {
-                            # Use a huge unique id so it never collides with DB ids
                             "id": int(1e18) + int(now.timestamp()),
                             "wa_number": wa_number,
                             "direction": "outbound",

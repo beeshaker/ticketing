@@ -10,11 +10,21 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+# -----------------------------------------------------------------------------
+# Timezone: Kenya (Africa/Nairobi)
+# -----------------------------------------------------------------------------
+KENYA_TZ = ZoneInfo("Africa/Nairobi")
+
+
+def kenya_now() -> datetime:
+    return datetime.now(KENYA_TZ)
 
 
 def whatsapp_inbox_page(db):
     # -------------------------------------------------------------------------
-    # Auth guard (main already does license + login, but keep a hard guard anyway)
+    # Auth guard
     # -------------------------------------------------------------------------
     if "authenticated" not in st.session_state or not st.session_state["authenticated"]:
         st.error("Please login first.")
@@ -45,10 +55,6 @@ def whatsapp_inbox_page(db):
         if x is None or (isinstance(x, float) and pd.isna(x)):
             return ""
         return str(x)
-
-    def _badge(direction: str):
-        d = (direction or "").strip().lower()
-        return "📤" if d == "outbound" else "📥"
 
     def _conversation_label(row) -> str:
         wa = _safe_str(row.get("wa_number") or "")
@@ -133,7 +139,10 @@ def whatsapp_inbox_page(db):
         st.divider()
 
         # Context for selected conversation
-        last_row = conv_df.loc[conv_df["wa_number"].astype(str) == str(st.session_state.wa_selected_number)].iloc[0]
+        last_row = conv_df.loc[
+            conv_df["wa_number"].astype(str) == str(st.session_state.wa_selected_number)
+        ].iloc[0]
+
         st.markdown("### 🧾 Context")
         st.write(f"**WhatsApp:** {st.session_state.wa_selected_number}")
         st.write(f"**Last message at:** {_fmt_dt(last_row.get('last_at'))}")
@@ -165,7 +174,6 @@ def whatsapp_inbox_page(db):
             )
 
         with t3:
-            # Export currently loaded cache
             if st.button("🧾 Export CSV", use_container_width=True):
                 df_exp = st.session_state.wa_msg_cache
                 if df_exp is None or df_exp.empty:
@@ -206,7 +214,11 @@ def whatsapp_inbox_page(db):
                 else:
                     older = older.sort_values("id", ascending=True).reset_index(drop=True)
                     combined = pd.concat([older, df_thread], ignore_index=True)
-                    combined = combined.drop_duplicates(subset=["id"]).sort_values("id", ascending=True).reset_index(drop=True)
+                    combined = (
+                        combined.drop_duplicates(subset=["id"])
+                        .sort_values("id", ascending=True)
+                        .reset_index(drop=True)
+                    )
                     st.session_state.wa_msg_cache = combined
                     st.rerun()
 
@@ -249,7 +261,6 @@ def whatsapp_inbox_page(db):
                     if err:
                         st.error(err)
 
-                    # Context pointers
                     ticket_id = r.get("ticket_id")
                     job_card_id = r.get("job_card_id")
                     if ticket_id or job_card_id:
@@ -297,11 +308,12 @@ def whatsapp_inbox_page(db):
                 else:
                     st.success("✅ Sent.")
 
-                    # Append synthetic row so it appears instantly (optional)
+                    # Append synthetic row so it appears instantly
                     try:
-                        now = datetime.now()
+                        now = kenya_now()
                         synthetic = {
-                            "id": int(df_thread["id"].max()) + 1 if df_thread is not None and not df_thread.empty else 10**12,
+                            # Use a huge unique id so it never collides with DB ids
+                            "id": int(1e18) + int(now.timestamp()),
                             "wa_number": wa_number,
                             "direction": "outbound",
                             "wa_to": wa_number,
@@ -317,13 +329,16 @@ def whatsapp_inbox_page(db):
                             "job_card_id": None,
                             "created_at": now,
                         }
+
                         current = st.session_state.wa_msg_cache
                         if current is None or current.empty:
                             st.session_state.wa_msg_cache = pd.DataFrame([synthetic])
                         else:
-                            st.session_state.wa_msg_cache = pd.concat(
-                                [current, pd.DataFrame([synthetic])], ignore_index=True
-                            ).sort_values("id", ascending=True).reset_index(drop=True)
+                            st.session_state.wa_msg_cache = (
+                                pd.concat([current, pd.DataFrame([synthetic])], ignore_index=True)
+                                .sort_values("id", ascending=True)
+                                .reset_index(drop=True)
+                            )
                     except Exception:
                         st.session_state.wa_msg_cache = None
 

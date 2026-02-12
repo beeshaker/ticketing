@@ -1,11 +1,6 @@
 # whatsapp_inbox.py
 # PRIVATE MODULE (not in /pages)
 # Call it from main.py like: whatsapp_inbox_page(db)
-#
-# Requires Conn methods:
-#   - fetch_inbox_conversations(q_search: str|None, limit: int) -> pd.DataFrame
-#   - fetch_conversation_messages(wa_number: str, limit: int, before_id: int|None) -> pd.DataFrame
-#   - send_whatsapp_notification(to: str, message: str) -> dict
 
 from __future__ import annotations
 
@@ -14,10 +9,10 @@ import json
 import html
 import streamlit as st
 import pandas as pd
+import streamlit.components.v1 as components
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# Timezone: Kenya (Africa/Nairobi)
 KENYA_TZ = ZoneInfo("Africa/Nairobi")
 
 
@@ -27,7 +22,7 @@ def whatsapp_inbox_page(db):
         st.stop()
 
     # ---------------------------
-    # Session State
+    # Session state
     # ---------------------------
     st.session_state.setdefault("wa_selected_number", None)
     st.session_state.setdefault("wa_msg_cache", None)
@@ -37,30 +32,24 @@ def whatsapp_inbox_page(db):
     # ---------------------------
     # Helpers
     # ---------------------------
-    def safe_text(x) -> str:
+    def _s(x) -> str:
         if x is None or (isinstance(x, float) and pd.isna(x)):
             return ""
         return str(x)
 
-    def strip_html_if_needed(s: str) -> str:
-        """
-        If body_text accidentally contains HTML (e.g. "<div class='msg-row'>..."),
-        strip tags so it doesn't show as a giant code block in bubbles.
-        """
-        s = safe_text(s)
-        if "<div" in s.lower() or "<span" in s.lower() or "<br" in s.lower() or "</" in s:
-            s = re.sub(r"<[^>]+>", "", s)  # remove tags
-            s = re.sub(r"\s+\n", "\n", s)
+    def _strip_html_if_needed(s: str) -> str:
+        s = _s(s)
+        # If DB accidentally contains HTML layout, strip tags.
+        if "<div" in s.lower() or "<span" in s.lower() or "</" in s.lower():
+            s = re.sub(r"<[^>]+>", "", s)
             s = re.sub(r"\n{3,}", "\n\n", s)
             s = s.strip()
         return s
 
-    def dt_to_kenya(x) -> datetime | None:
+    def _dt_kenya(x) -> datetime | None:
         """
-        Your DB stores Kenya-local naive timestamps (DATETIME).
-        So:
-          - if naive: localize as Kenya (DO NOT treat as UTC)
-          - if tz-aware: convert to Kenya
+        DB timestamps are Kenya-local naive DATETIME.
+        So: if naive => localize as Kenya (NOT UTC).
         """
         if x is None or (isinstance(x, float) and pd.isna(x)):
             return None
@@ -68,404 +57,297 @@ def whatsapp_inbox_page(db):
         if pd.isna(dt):
             return None
         if getattr(dt, "tzinfo", None) is None:
-            return dt.tz_localize(KENYA_TZ)
-        return dt.tz_convert(KENYA_TZ)
+            return dt.to_pydatetime().replace(tzinfo=KENYA_TZ)
+        return dt.to_pydatetime().astimezone(KENYA_TZ)
 
-    def avatar_seed_color(seed: str) -> str:
+    def _avatar_color(seed: str) -> str:
         palette = ["#25D366", "#128C7E", "#34B7F1", "#6C5CE7", "#E17055", "#00B894", "#0984E3", "#D63031"]
         n = sum(ord(c) for c in (seed or ""))
         return palette[n % len(palette)]
 
-    def initials_from_number(wa: str) -> str:
-        wa = safe_text(wa).strip()
-        if len(wa) >= 2:
-            return wa[-2:]
-        return "WA"
+    def _initials(wa: str) -> str:
+        wa = _s(wa).strip()
+        return wa[-2:] if len(wa) >= 2 else "WA"
 
-    def status_ticks(direction: str, status: str) -> str:
-        """
-        WhatsApp-ish:
-          sent -> ✓
-          delivered -> ✓✓ (grey)
-          read/seen -> ✓✓ (blue)
-        """
-        if (safe_text(direction).lower() != "outbound"):
+    def _ticks(direction: str, status: str) -> str:
+        if _s(direction).lower().strip() != "outbound":
             return ""
-
-        s = safe_text(status).lower().strip()
+        s = _s(status).lower().strip()
         if not s:
             return ""
         if s in {"sent", "queued", "accepted"}:
-            return '<span class="ticks ticks-grey">✓</span>'
+            return '<span class="ticks grey">✓</span>'
         if s in {"delivered"}:
-            return '<span class="ticks ticks-grey">✓✓</span>'
+            return '<span class="ticks grey">✓✓</span>'
         if s in {"read", "seen"}:
-            return '<span class="ticks ticks-blue">✓✓</span>'
-        return '<span class="ticks ticks-grey">✓✓</span>'
+            return '<span class="ticks blue">✓✓</span>'
+        return '<span class="ticks grey">✓✓</span>'
 
-    def parse_interactive(meta_json_val) -> str:
-        """
-        Best-effort render for interactive messages if body_text is NULL.
-        Your table has meta_json like {"type":"interactive", ...}.
-        """
+    def _render_interactive(meta_json_val) -> str:
         if meta_json_val is None or (isinstance(meta_json_val, float) and pd.isna(meta_json_val)):
             return "[interactive]"
         try:
             obj = meta_json_val if isinstance(meta_json_val, dict) else json.loads(str(meta_json_val))
         except Exception:
             return "[interactive]"
-
-        # common: list buttons in order if present
-        # We'll just dump something readable.
-        if isinstance(obj, dict):
-            t = obj.get("type")
-            if t:
-                return f"[{t}]"
+        if isinstance(obj, dict) and obj.get("type"):
+            return f"[{obj.get('type')}]"
         return "[interactive]"
 
     # ---------------------------
-    # CSS: WhatsApp clone look
+    # Page styling (outside iframe)
     # ---------------------------
     st.markdown(
         """
         <style>
-        /* overall */
         [data-testid="stAppViewContainer"] { background:#f0f2f5 !important; }
-        [data-testid="stHeader"] { background:transparent; }
-
-        /* WhatsApp split panels */
-        .wa-wrap{display:flex; gap:16px; align-items:stretch;}
-        .wa-left{background:#fff;border:1px solid #d1d7db;border-radius:10px;overflow:hidden;}
-        .wa-right{background:#efeae2;border:1px solid #d1d7db;border-radius:10px;overflow:hidden;}
-
-        /* left header */
-        .wa-left-head{
-            background:#f0f2f5;
-            padding:12px 14px;
-            border-bottom:1px solid #d1d7db;
-            font-weight:800;
-            color:#111b21;
-        }
-
-        /* chat list item */
-        .chat-item{
-            display:flex;
-            gap:10px;
-            align-items:center;
-            padding:10px 12px;
-            border-bottom:1px solid #f1f3f4;
-            cursor:pointer;
-        }
-        .chat-item:hover{background:#f5f6f6;}
-        .chat-item.active{background:#e9edef;}
-        .av-sm{
-            width:34px;height:34px;border-radius:50%;
-            display:flex;align-items:center;justify-content:center;
-            color:#fff;font-weight:800;flex:0 0 auto;
-        }
-        .chat-meta{min-width:0;}
-        .chat-title{font-weight:700;color:#111b21;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .chat-snippet{font-size:12px;color:#667781;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-
-        /* right header bar */
-        .wa-head{
-            background:#075e54;
-            color:#fff;
-            padding:10px 12px;
-            display:flex;
-            align-items:center;
-            justify-content:space-between;
-            gap:12px;
-        }
-        .wa-head-left{display:flex;align-items:center;gap:10px;min-width:0;}
-        .av{
-            width:38px;height:38px;border-radius:50%;
-            display:flex;align-items:center;justify-content:center;
-            color:#fff;font-weight:900;flex:0 0 auto;
-        }
-        .wa-head-title{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .wa-head-sub{font-size:12px;opacity:0.85;}
-        .wa-head-actions{display:flex;gap:8px;opacity:0.95;}
-        .wa-pill{background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);padding:6px 10px;border-radius:999px;font-size:12px;}
-
-        /* chat body (NO wallpaper image) */
-        .chat-container{
-            height:68vh;
-            overflow-y:auto;
-            padding:14px 14px 10px 14px;
-            background:#efeae2;   /* clean background */
-            background-image:none !important; /* REMOVE WALLPAPER */
-        }
-
-        /* date separator */
-        .date-divider{display:flex;justify-content:center;margin:12px 0;}
-        .date-divider span{
-            background:#fff;
-            border:1px solid rgba(0,0,0,0.08);
-            padding:5px 12px;
-            border-radius:8px;
-            font-size:12px;
-            color:#54656f;
-            box-shadow:0 1px 0.5px rgba(0,0,0,0.08);
-        }
-
-        /* system status chip */
-        .sys{display:flex;justify-content:center;margin:10px 0;}
-        .sys span{
-            background:rgba(255,255,255,0.85);
-            border:1px solid rgba(0,0,0,0.08);
-            color:#54656f;
-            font-size:12px;
-            padding:5px 10px;
-            border-radius:999px;
-        }
-
-        /* bubbles */
-        .msg-row{display:flex;margin:4px 0;width:100%;}
-        .msg-row.out{justify-content:flex-end;}
-        .msg-row.in{justify-content:flex-start;}
-        .bubble{
-            padding:7px 10px 18px 10px;
-            max-width:68%;
-            font-size:14px;
-            position:relative;
-            border-radius:8px;
-            box-shadow:0 1px 0.5px rgba(0,0,0,0.13);
-            border:1px solid rgba(0,0,0,0.04);
-            white-space:pre-wrap;
-            word-wrap:break-word;
-            color:#111b21;
-        }
-        .bubble.out{background:#d9fdd3;border-top-right-radius:0;}
-        .bubble.in{background:#fff;border-top-left-radius:0;}
-        .bubble.out::after{
-            content:"";position:absolute;right:-8px;top:0;
-            width:0;height:0;border-left:10px solid #d9fdd3;border-bottom:10px solid transparent;
-        }
-        .bubble.in::after{
-            content:"";position:absolute;left:-8px;top:0;
-            width:0;height:0;border-right:10px solid #fff;border-bottom:10px solid transparent;
-        }
-        .msg-footer{
-            position:absolute;right:8px;bottom:4px;
-            display:flex;gap:6px;align-items:center;
-            font-size:11px;color:#667781;
-        }
-        .ticks{font-weight:900;letter-spacing:-1px;}
-        .ticks-grey{color:#8696a0;}
-        .ticks-blue{color:#53beec;}
-
-        /* typing indicator */
-        .typing{display:flex;justify-content:flex-start;margin:6px 0;}
-        .typing .bubble{border-radius:18px;padding:10px 12px;}
-        .dots{display:inline-flex;gap:4px;}
-        .dot{width:6px;height:6px;border-radius:50%;background:#8696a0;opacity:0.55;animation:dot 1.2s infinite ease-in-out;}
-        .dot:nth-child(2){animation-delay:0.15s;}
-        .dot:nth-child(3){animation-delay:0.30s;}
-        @keyframes dot{0%,80%,100%{transform:translateY(0);opacity:0.45;}40%{transform:translateY(-3px);opacity:0.95;}}
-
-        /* composer */
-        .composer{
-            background:#f0f2f5;
-            border-top:1px solid #d1d7db;
-            padding:10px 12px;
-        }
+        .wa-grid { display:grid; grid-template-columns: 320px 1fr; gap:16px; align-items:start; }
+        .wa-card { background:#fff; border:1px solid #d1d7db; border-radius:12px; overflow:hidden; }
+        .wa-card-head { background:#f0f2f5; padding:12px 14px; font-weight:800; border-bottom:1px solid #d1d7db; }
+        .chat-row { display:flex; gap:10px; align-items:center; padding:10px 12px; border-bottom:1px solid #f1f3f4; }
+        .chat-row:hover { background:#f5f6f6; }
+        .chat-row.active { background:#e9edef; }
+        .av-sm { width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:900; }
+        .chat-meta { min-width:0; }
+        .chat-title { font-weight:800; color:#111b21; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .chat-snippet { font-size:12px; color:#667781; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+    st.title("💬 WhatsApp Inbox")
+
     # ---------------------------
-    # Data: conversations
+    # Load conversations
     # ---------------------------
+    st.session_state.wa_inbox_search = st.text_input(
+        "Search",
+        value=st.session_state.wa_inbox_search,
+        placeholder="Search by number or text…",
+        label_visibility="collapsed",
+    )
+
     conv_df = db.fetch_inbox_conversations(q_search=st.session_state.wa_inbox_search, limit=80)
+    if conv_df is None or conv_df.empty:
+        st.info("No conversations found.")
+        return
 
-    left, right = st.columns([1, 2.8], gap="large")
+    wa_list = conv_df["wa_number"].astype(str).tolist()
+    if st.session_state.wa_selected_number is None or st.session_state.wa_selected_number not in wa_list:
+        st.session_state.wa_selected_number = wa_list[0]
 
     # ---------------------------
-    # LEFT PANE
+    # Layout
+    # ---------------------------
+    left, right = st.columns([1, 2.6], gap="large")
+
+    # ---------------------------
+    # LEFT: Chat list
     # ---------------------------
     with left:
-        st.markdown('<div class="wa-left"><div class="wa-left-head">Chats</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="wa-card"><div class="wa-card-head">Chats</div>', unsafe_allow_html=True)
 
-        st.session_state.wa_inbox_search = st.text_input(
-            "Search",
-            value=st.session_state.wa_inbox_search,
-            placeholder="Search…",
-            label_visibility="collapsed",
-        )
-
-        if conv_df is None or conv_df.empty:
-            st.info("No conversations found.")
-            return
-
-        # choose a default chat if none selected
-        wa_list = conv_df["wa_number"].astype(str).tolist()
-        if st.session_state.wa_selected_number is None or st.session_state.wa_selected_number not in wa_list:
-            st.session_state.wa_selected_number = wa_list[0]
-
-        # Render chat list as clickable rows (buttons)
         for _, row in conv_df.iterrows():
             wa = str(row["wa_number"])
-            snippet = safe_text(row.get("body_text")) or safe_text(row.get("template_name")) or ""
-            snippet = strip_html_if_needed(snippet)
+            snippet = _strip_html_if_needed(_s(row.get("body_text")) or _s(row.get("template_name")) or "")
             if len(snippet) > 30:
                 snippet = snippet[:30] + "…"
 
             active = "active" if wa == st.session_state.wa_selected_number else ""
-            av_bg = avatar_seed_color(wa)
-            av_txt = initials_from_number(wa)
+            av_bg = _avatar_color(wa)
+            av_txt = _initials(wa)
 
-            # Use a button but style visually like a list row
-            clicked = st.button(f"{wa}", key=f"chat_{wa}", use_container_width=True)
-            # We also show a little "fake" row above the button using HTML
+            # Visual row
             st.markdown(
                 f"""
-                <div class="chat-item {active}">
-                  <div class="av-sm" style="background:{av_bg}">{html.escape(av_txt)}</div>
-                  <div class="chat-meta">
-                    <div class="chat-title">{html.escape(wa)}</div>
-                    <div class="chat-snippet">{html.escape(snippet) if snippet else " "}</div>
-                  </div>
+                <div class="chat-row {active}">
+                    <div class="av-sm" style="background:{av_bg}">{html.escape(av_txt)}</div>
+                    <div class="chat-meta">
+                        <div class="chat-title">{html.escape(wa)}</div>
+                        <div class="chat-snippet">{html.escape(snippet) if snippet else "&nbsp;"}</div>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-            if clicked:
+            # Click handler (button)
+            if st.button(f"Open {wa}", key=f"open_{wa}", use_container_width=True):
                 st.session_state.wa_selected_number = wa
                 st.session_state.wa_msg_cache = None
                 st.rerun()
 
+        st.markdown("</div>", unsafe_allow_html=True)
+
     # ---------------------------
-    # RIGHT PANE (Chat)
+    # RIGHT: WhatsApp clone chat pane (iframe)
     # ---------------------------
     with right:
-        wa_num = st.session_state.wa_selected_number
-        if not wa_num:
-            st.info("Select a conversation")
-            return
+        wa = st.session_state.wa_selected_number
 
-        av_bg = avatar_seed_color(wa_num)
-        av_txt = initials_from_number(wa_num)
-
-        # Header bar
-        st.markdown(
-            f"""
-            <div class="wa-right">
-              <div class="wa-head">
-                <div class="wa-head-left">
-                  <div class="av" style="background:{av_bg}">{html.escape(av_txt)}</div>
-                  <div style="min-width:0;">
-                    <div class="wa-head-title">{html.escape(wa_num)}</div>
-                    <div class="wa-head-sub">{'typing…' if st.session_state.wa_show_typing else 'online'}</div>
-                  </div>
-                </div>
-                <div class="wa-head-actions">
-                  <div class="wa-pill">🔍</div>
-                  <div class="wa-pill">⋮</div>
-                </div>
-              </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # Load messages
+        # Load thread
         if st.session_state.wa_msg_cache is None:
-            st.session_state.wa_msg_cache = db.fetch_conversation_messages(wa_num, limit=150, before_id=None)
+            st.session_state.wa_msg_cache = db.fetch_conversation_messages(wa, limit=200, before_id=None)
 
         df = st.session_state.wa_msg_cache
+        if df is None or df.empty:
+            st.info("No messages for this conversation yet.")
+            return
 
-        chat_html = '<div class="chat-container">'
+        df = df.sort_values("id")
 
-        if df is not None and not df.empty:
-            df = df.sort_values("id")
+        # Build chat HTML inside an iframe (pixel-perfect + reliable)
+        av_bg = _avatar_color(wa)
+        av_txt = _initials(wa)
 
-            last_date = None
-            for _, msg in df.iterrows():
-                direction = safe_text(msg.get("direction")).lower().strip()
-                mtype = safe_text(msg.get("message_type")).lower().strip()
-                status = safe_text(msg.get("status")).lower().strip()
+        msgs_html = ""
+        last_date = None
 
-                # timestamp
-                dt_obj = dt_to_kenya(msg.get("created_at"))
-                if dt_obj is None:
-                    continue
+        for _, msg in df.iterrows():
+            direction = _s(msg.get("direction")).lower().strip()
+            mtype = _s(msg.get("message_type")).lower().strip()
+            status = _s(msg.get("status")).lower().strip()
 
-                curr_date = dt_obj.strftime("%d %b %Y")
-                if curr_date != last_date:
-                    chat_html += f'<div class="date-divider"><span>{html.escape(curr_date)}</span></div>'
-                    last_date = curr_date
+            dt = _dt_kenya(msg.get("created_at"))
+            if not dt:
+                continue
 
-                side = "out" if direction == "outbound" else "in"
+            day = dt.strftime("%d %b %Y")
+            if day != last_date:
+                msgs_html += f'<div class="date"><span>{html.escape(day)}</span></div>'
+                last_date = day
 
-                # Content selection (NO "None")
-                body = strip_html_if_needed(msg.get("body_text"))
-                tpl = safe_text(msg.get("template_name"))
-                meta_json_val = msg.get("meta_json") if "meta_json" in df.columns else None
+            # status rows (center chip)
+            if mtype == "status":
+                sys_txt = status or "status update"
+                msgs_html += f'<div class="sys"><span>{html.escape(sys_txt)}</span></div>'
+                continue
 
-                content = ""
-                if body:
-                    content = body
-                elif tpl:
-                    content = f"📌 Template: {tpl}"
-                elif mtype == "interactive":
-                    content = parse_interactive(meta_json_val)
-                elif mtype == "status":
-                    # render as system chip instead of bubble
-                    sys_txt = status or "status update"
-                    chat_html += f'<div class="sys"><span>{html.escape(sys_txt)}</span></div>'
-                    continue
-                else:
-                    # If it's not a status and still empty, skip silently
-                    continue
+            side = "out" if direction == "outbound" else "in"
 
-                # Escape content to avoid HTML injection in UI
-                content_html = html.escape(content)
+            body = _strip_html_if_needed(msg.get("body_text"))
+            tpl = _s(msg.get("template_name"))
+            meta_json = msg.get("meta_json") if "meta_json" in df.columns else None
 
-                ticks = status_ticks(direction=direction, status=status)
-                time_txt = dt_obj.strftime("%H:%M")
+            if body:
+                content = body
+            elif tpl:
+                content = f"📌 Template: {tpl}"
+            elif mtype == "interactive":
+                content = _render_interactive(meta_json)
+            else:
+                # skip empty
+                continue
 
-                chat_html += f"""
-                    <div class="msg-row {side}">
-                        <div class="bubble {side}">
-                            {content_html}
-                            <div class="msg-footer">{time_txt} {ticks}</div>
-                        </div>
-                    </div>
-                """
+            ticks = _ticks(direction, status)
+            time_txt = dt.strftime("%H:%M")
 
-        # Typing indicator (UI-only)
-        if st.session_state.wa_show_typing:
-            chat_html += """
-                <div class="typing">
-                  <div class="bubble in">
-                    <span class="dots">
-                      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-                    </span>
-                  </div>
-                </div>
+            msgs_html += f"""
+            <div class="row {side}">
+              <div class="bubble {side}">
+                {html.escape(content)}
+                <div class="foot">{time_txt} {ticks}</div>
+              </div>
+            </div>
             """
 
-        chat_html += "</div>"
-        st.markdown(chat_html, unsafe_allow_html=True)
+        typing_html = ""
+        if st.session_state.wa_show_typing:
+            typing_html = """
+            <div class="row in">
+              <div class="bubble in typing">
+                <span class="dots"><i></i><i></i><i></i></span>
+              </div>
+            </div>
+            """
 
-        # Composer
-        st.markdown('<div class="composer">', unsafe_allow_html=True)
+        chat_doc = f"""
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <style>
+            body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#efeae2;}}
+            .wrap{{height:72vh;display:flex;flex-direction:column;border:1px solid #d1d7db;border-radius:12px;overflow:hidden;background:#efeae2;}}
+            .head{{background:#075e54;color:#fff;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;}}
+            .headL{{display:flex;align-items:center;gap:10px;min-width:0;}}
+            .av{{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;background:{av_bg};}}
+            .title{{font-weight:900;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
+            .sub{{font-size:12px;opacity:.85;}}
+            .pill{{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);padding:6px 10px;border-radius:999px;font-size:12px;}}
+            .body{{flex:1;overflow-y:auto;padding:14px;background:#efeae2;}}
+            .date{{display:flex;justify-content:center;margin:12px 0;}}
+            .date span{{background:#fff;border:1px solid rgba(0,0,0,.08);padding:5px 12px;border-radius:8px;font-size:12px;color:#54656f;}}
+            .sys{{display:flex;justify-content:center;margin:10px 0;}}
+            .sys span{{background:rgba(255,255,255,.85);border:1px solid rgba(0,0,0,.08);color:#54656f;font-size:12px;padding:5px 10px;border-radius:999px;}}
+            .row{{display:flex;margin:4px 0;width:100%;}}
+            .row.out{{justify-content:flex-end;}}
+            .row.in{{justify-content:flex-start;}}
+            .bubble{{max-width:68%;padding:7px 10px 18px 10px;position:relative;border-radius:8px;box-shadow:0 1px .5px rgba(0,0,0,.13);border:1px solid rgba(0,0,0,.04);white-space:pre-wrap;word-wrap:break-word;color:#111b21;font-size:14px;}}
+            .bubble.out{{background:#d9fdd3;border-top-right-radius:0;}}
+            .bubble.in{{background:#fff;border-top-left-radius:0;}}
+            .bubble.out:after{{content:"";position:absolute;right:-8px;top:0;width:0;height:0;border-left:10px solid #d9fdd3;border-bottom:10px solid transparent;}}
+            .bubble.in:after{{content:"";position:absolute;left:-8px;top:0;width:0;height:0;border-right:10px solid #fff;border-bottom:10px solid transparent;}}
+            .foot{{position:absolute;right:8px;bottom:4px;display:flex;gap:6px;align-items:center;font-size:11px;color:#667781;}}
+            .ticks{{font-weight:900;letter-spacing:-1px;}}
+            .grey{{color:#8696a0;}}
+            .blue{{color:#53beec;}}
+            .typing{{border-radius:18px;padding:10px 12px;}}
+            .dots{{display:inline-flex;gap:4px;}}
+            .dots i{{width:6px;height:6px;border-radius:50%;background:#8696a0;opacity:.55;display:inline-block;animation:dot 1.2s infinite ease-in-out;}}
+            .dots i:nth-child(2){{animation-delay:.15s;}}
+            .dots i:nth-child(3){{animation-delay:.30s;}}
+            @keyframes dot{{0%,80%,100%{{transform:translateY(0);opacity:.45;}}40%{{transform:translateY(-3px);opacity:.95;}}}}
+          </style>
+        </head>
+        <body>
+          <div class="wrap">
+            <div class="head">
+              <div class="headL">
+                <div class="av">{html.escape(av_txt)}</div>
+                <div style="min-width:0">
+                  <div class="title">{html.escape(wa)}</div>
+                  <div class="sub">{'typing…' if st.session_state.wa_show_typing else 'online'}</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px">
+                <div class="pill">🔍</div>
+                <div class="pill">⋮</div>
+              </div>
+            </div>
+            <div class="body" id="body">
+              {msgs_html}
+              {typing_html}
+            </div>
+          </div>
+          <script>
+            // auto-scroll to bottom
+            const b = document.getElementById("body");
+            b.scrollTop = b.scrollHeight;
+          </script>
+        </body>
+        </html>
+        """
 
-        c0, c1, c2 = st.columns([0.9, 5, 1.2])
-        with c0:
-            if st.button("💬 Typing", use_container_width=True):
+        components.html(chat_doc, height=620, scrolling=False)
+
+        # Controls + composer (Streamlit side)
+        cA, cB = st.columns([1, 3])
+        with cA:
+            if st.button("Toggle typing…", use_container_width=True):
                 st.session_state.wa_show_typing = not st.session_state.wa_show_typing
                 st.rerun()
-
-        with c1:
-            reply = st.text_input("Type a message", placeholder="Message", label_visibility="collapsed")
-
-        with c2:
-            if st.button("Send", use_container_width=True) and reply.strip():
-                db.send_whatsapp_notification(to=wa_num, message=reply.strip())
+        with cB:
+            if st.button("Refresh thread", use_container_width=True):
                 st.session_state.wa_msg_cache = None
                 st.rerun()
 
-        st.markdown("</div></div>", unsafe_allow_html=True)  # close composer + wa-right
+        with st.form("wa_send_form", clear_on_submit=True):
+            c1, c2 = st.columns([5, 1])
+            msg = c1.text_input("Message", placeholder="Message", label_visibility="collapsed")
+            sent = c2.form_submit_button("Send", use_container_width=True)
+            if sent and msg.strip():
+                db.send_whatsapp_notification(to=wa, message=msg.strip())
+                st.session_state.wa_msg_cache = None
+                st.rerun()

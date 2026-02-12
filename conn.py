@@ -1,8 +1,9 @@
 # conn.py (FULL UPDATED — cleaned + WhatsApp inbox uses the CORRECT table)
-# ✅ Removes duplicates (get_all_admin_users, get_ticket_whatsapp_number, etc.)
+# ✅ Removes duplicates
 # ✅ WhatsApp Inbox reads from whatsapp_messages if it exists, else falls back to whatsapp_message_log
-# ✅ Keeps your ticketing + job cards features intact
-# ✅ Uses kenya_now() everywhere for app-side timestamps (no NOW() except where you had it already)
+# ✅ Handles whatsapp_messages WITHOUT created_at (uses MAX(id) instead)
+# ✅ Keeps tickets + job cards + KPIs + properties/users/admins intact
+# ✅ Uses kenya_now() for app-side timestamps
 
 from __future__ import annotations
 
@@ -39,7 +40,7 @@ class Conn:
         self.engine = create_engine(db_uri, pool_pre_ping=True, pool_recycle=1800)
 
     # -------------------------------------------------------------------------
-    # Internal: WhatsApp table detection
+    # Internal: Schema detection helpers
     # -------------------------------------------------------------------------
     def _table_exists(self, table_name: str) -> bool:
         q = text(
@@ -54,6 +55,20 @@ class Conn:
             c = conn.execute(q, {"t": table_name}).scalar()
         return bool(c and int(c) > 0)
 
+    def _column_exists(self, table_name: str, column_name: str) -> bool:
+        q = text(
+            """
+            SELECT COUNT(*) AS c
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = :t
+              AND column_name = :cname
+            """
+        )
+        with self.engine.connect() as conn:
+            c = conn.execute(q, {"t": table_name, "cname": column_name}).scalar()
+        return bool(c and int(c) > 0)
+
     def _whatsapp_table(self) -> str:
         """
         Prefer whatsapp_messages (recommended/new).
@@ -66,6 +81,16 @@ class Conn:
         raise RuntimeError(
             "No WhatsApp messages table found. Expected whatsapp_messages or whatsapp_message_log."
         )
+
+    def _wa_latest_key(self, table: str) -> str:
+        """
+        Returns which field to use as 'latest':
+          - if created_at exists -> created_at
+          - else -> id
+        """
+        if self._column_exists(table, "created_at"):
+            return "created_at"
+        return "id"
 
     # -------------------------------------------------------------------------
     # Tickets
@@ -145,7 +170,6 @@ class Conn:
             FROM tickets
             WHERE status != 'Resolved'
         """)
-
         with self.engine.connect() as conn:
             result = conn.execute(q).fetchone()
 
@@ -171,9 +195,13 @@ class Conn:
         return df.to_dict("records")
 
     def fetch_all_admin_users(self):
-        q = "SELECT id, name, whatsapp_number, admin_type, property_id FROM admin_users"
+        q = "SELECT id, name, username, whatsapp_number, admin_type, property_id FROM admin_users"
         df = pd.read_sql(q, self.engine)
         return df.to_dict("records")
+
+    def get_all_admin_users(self):
+        """Alias used by some pages."""
+        return self.fetch_all_admin_users()
 
     def get_admin_role_and_property(self, admin_id):
         """Returns admin_type and property_id for given admin."""
@@ -241,11 +269,7 @@ class Conn:
         url = st.secrets.URL
         api_key = st.secrets.get("INTERNAL_API_KEY")
         headers = {"Content-Type": "application/json", "X-API-KEY": api_key}
-        payload = {
-            "to": to,
-            "template_name": template_name,
-            "template_parameters": template_parameters,
-        }
+        payload = {"to": to, "template_name": template_name, "template_parameters": template_parameters}
 
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=25)
@@ -254,7 +278,7 @@ class Conn:
             return {"error": str(e)}
 
     # -------------------------------------------------------------------------
-    # Ticket status + updates
+    # Ticket status + updates + history + reassignment
     # -------------------------------------------------------------------------
     def update_ticket_status(self, ticket_id, new_status):
         """
@@ -424,7 +448,15 @@ class Conn:
             df.sort_values(by="performed_at", inplace=True)
         return df
 
-    def reassign_ticket_admin(self, ticket_id, new_admin_id, old_admin_id, changed_by_admin, reason, is_super_admin=False):
+    def reassign_ticket_admin(
+        self,
+        ticket_id,
+        new_admin_id,
+        old_admin_id,
+        changed_by_admin,
+        reason,
+        is_super_admin=False,
+    ):
         """
         Reassigns ticket, logs change, and sends WhatsApp notifications.
         Uses Kenya time for changed_at.
@@ -477,7 +509,6 @@ class Conn:
                 )
 
             return True, "✅ Ticket reassigned successfully!"
-
         except Exception as e:
             print(f"❌ Unexpected error in reassign_ticket_admin: {e}")
             return False, "❌ An unexpected error occurred during reassignment."
@@ -557,28 +588,28 @@ class Conn:
                 text("SELECT id FROM properties WHERE name = :name"),
                 {"name": property_name},
             ).fetchone()
-
             if existing:
                 return False, "❌ Property with this name already exists."
 
             try:
                 conn.execute(
                     text("INSERT INTO properties (name, supervisor_id) VALUES (:name, :supervisor_id)"),
-                    {"name": property_name, "supervisor_id": supervisor_id},
+                    {"name": property_name, "supervisor_id": int(supervisor_id) if supervisor_id else None},
                 )
                 property_id = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar()
 
-                conn.execute(
-                    text("UPDATE admin_users SET property_id = :property_id WHERE id = :supervisor_id"),
-                    {"property_id": property_id, "supervisor_id": supervisor_id},
-                )
+                if supervisor_id:
+                    conn.execute(
+                        text("UPDATE admin_users SET property_id = :property_id WHERE id = :supervisor_id"),
+                        {"property_id": property_id, "supervisor_id": int(supervisor_id)},
+                    )
+
                 conn.commit()
                 return True, "✅ Property created and supervisor assigned successfully!"
             except Exception as e:
                 return False, f"❌ Failed to create property: {e}"
 
     def get_available_property_managers(self):
-        """Fetch all Property Managers."""
         q = """
         SELECT id, name
         FROM admin_users
@@ -591,7 +622,6 @@ class Conn:
     def get_units_by_property(self, property_id):
         if not property_id:
             return []
-
         with self.engine.connect() as conn:
             result = conn.execute(
                 text("""
@@ -604,7 +634,6 @@ class Conn:
                 """),
                 {"property_id": int(property_id)},
             ).mappings().all()
-
         return [dict(r) for r in result]
 
     def update_property(self, property_id, name, supervisor_id):
@@ -670,6 +699,57 @@ class Conn:
 
         return row if row else None
 
+    def count_admin_users_by_property(self, property_id):
+        with self.engine.connect() as conn:
+            return conn.execute(
+                text("SELECT COUNT(*) FROM admin_users WHERE property_id = :pid"),
+                {"pid": int(property_id)},
+            ).scalar()
+
+    def count_tickets_by_property(self, property_id):
+        with self.engine.connect() as conn:
+            return conn.execute(
+                text("SELECT COUNT(*) FROM tickets WHERE property_id = :pid"),
+                {"pid": int(property_id)},
+            ).scalar()
+
+    def reassign_admin_users(self, old_property_id, new_property_id):
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("""
+                    UPDATE admin_users
+                    SET property_id = :new_pid
+                    WHERE property_id = :old_pid
+                """),
+                {"old_pid": int(old_property_id), "new_pid": int(new_property_id)},
+            )
+
+    def reassign_tickets(self, old_property_id, new_property_id):
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("""
+                    UPDATE tickets
+                    SET property_id = :new_pid
+                    WHERE property_id = :old_pid
+                """),
+                {"old_pid": int(old_property_id), "new_pid": int(new_property_id)},
+            )
+
+    def null_admins_by_property(self, property_id):
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("""
+                    UPDATE admin_users
+                    SET property_id = NULL
+                    WHERE property_id = :pid
+                """),
+                {"pid": int(property_id)},
+            )
+
+    def delete_tickets_by_property(self, property_id):
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM tickets WHERE property_id = :pid"), {"pid": int(property_id)})
+
     # -------------------------------------------------------------------------
     # Users
     # -------------------------------------------------------------------------
@@ -694,7 +774,7 @@ class Conn:
                 {
                     "name": name,
                     "whatsapp_number": whatsapp_number,
-                    "property_id": property_id,
+                    "property_id": int(property_id) if property_id not in ("", None) else None,
                     "unit_number": unit_number,
                     "user_id": int(user_id),
                 },
@@ -748,8 +828,113 @@ class Conn:
         return [dict(r) for r in result]
 
     # -------------------------------------------------------------------------
-    # KPI / Performance (kept because your UI likely uses them)
+    # KPI / REPORTS
     # -------------------------------------------------------------------------
+    def kpi_summary(self, start_dt, end_dt):
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    WITH base AS (
+                        SELECT id, created_at, status, resolved_at
+                        FROM tickets
+                        WHERE created_at >= :start_dt
+                          AND created_at <  :end_dt
+                    ),
+                    first_action AS (
+                        SELECT tu.ticket_id, MIN(tu.created_at) AS first_response_at
+                        FROM ticket_updates tu
+                        JOIN base b ON b.id = tu.ticket_id
+                        GROUP BY tu.ticket_id
+                    )
+                    SELECT
+                        SUM(CASE WHEN b.status IN ('Open','In Progress') THEN 1 ELSE 0 END) AS open_count,
+                        SUM(CASE WHEN b.status = 'Resolved' THEN 1 ELSE 0 END) AS closed_count,
+                        CASE
+                            WHEN COUNT(*) = 0 THEN 0
+                            ELSE ROUND(
+                                (SUM(CASE WHEN b.status = 'Resolved' THEN 1 ELSE 0 END) / COUNT(*)) * 100,
+                                0
+                            )
+                        END AS pct_closed,
+                        AVG(
+                            CASE
+                                WHEN fa.first_response_at IS NULL THEN NULL
+                                ELSE TIMESTAMPDIFF(SECOND, b.created_at, fa.first_response_at)
+                            END
+                        ) AS avg_first_response_seconds,
+                        AVG(
+                            CASE
+                                WHEN b.resolved_at IS NULL THEN NULL
+                                ELSE TIMESTAMPDIFF(SECOND, b.created_at, b.resolved_at)
+                            END
+                        ) AS avg_resolution_seconds
+                    FROM base b
+                    LEFT JOIN first_action fa ON fa.ticket_id = b.id
+                """),
+                {"start_dt": start_dt, "end_dt": end_dt},
+            ).mappings().first()
+
+        return dict(row) if row else {
+            "open_count": 0,
+            "closed_count": 0,
+            "pct_closed": 0,
+            "avg_first_response_seconds": None,
+            "avg_resolution_seconds": None,
+        }
+
+    def tickets_per_day(self, start_dt, end_dt):
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        DATE(created_at) AS day,
+                        SUM(CASE WHEN status IN ('Open','In Progress') THEN 1 ELSE 0 END) AS open_count,
+                        SUM(CASE WHEN status = 'Resolved' THEN 1 ELSE 0 END) AS closed_count
+                    FROM tickets
+                    WHERE created_at >= :start_dt
+                      AND created_at <  :end_dt
+                    GROUP BY DATE(created_at)
+                    ORDER BY day ASC
+                """),
+                {"start_dt": start_dt, "end_dt": end_dt},
+            ).mappings().all()
+        return pd.DataFrame(rows)
+
+    def tickets_by_category(self, start_dt, end_dt):
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        COALESCE(NULLIF(TRIM(category), ''), 'Unspecified') AS category,
+                        COUNT(*) AS tickets
+                    FROM tickets
+                    WHERE created_at >= :start_dt
+                      AND created_at <  :end_dt
+                    GROUP BY COALESCE(NULLIF(TRIM(category), ''), 'Unspecified')
+                    ORDER BY tickets DESC
+                """),
+                {"start_dt": start_dt, "end_dt": end_dt},
+            ).mappings().all()
+        return pd.DataFrame(rows)
+
+    def tickets_by_property(self, start_dt, end_dt):
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        COALESCE(p.name, 'Unassigned') AS property,
+                        COUNT(*) AS tickets
+                    FROM tickets t
+                    LEFT JOIN properties p ON p.id = t.property_id
+                    WHERE t.created_at >= :start_dt
+                      AND t.created_at <  :end_dt
+                    GROUP BY COALESCE(p.name, 'Unassigned')
+                    ORDER BY tickets DESC
+                """),
+                {"start_dt": start_dt, "end_dt": end_dt},
+            ).mappings().all()
+        return pd.DataFrame(rows)
+
     def caretaker_performance(self, start_dt, end_dt):
         with self.engine.connect() as conn:
             rows = conn.execute(
@@ -767,7 +952,6 @@ class Conn:
                 """),
                 {"start_dt": start_dt, "end_dt": end_dt},
             ).mappings().all()
-
         df = pd.DataFrame(rows)
         if df.empty:
             return df
@@ -775,7 +959,7 @@ class Conn:
         return df
 
     # -------------------------------------------------------------------------
-    # Job Cards (kept)
+    # Job Cards
     # -------------------------------------------------------------------------
     def get_job_card_by_ticket(self, ticket_id: int):
         q = text("""
@@ -793,6 +977,72 @@ class Conn:
         with self.engine.connect() as conn:
             row = conn.execute(q, {"ticket_id": int(ticket_id)}).mappings().first()
         return dict(row) if row else None
+
+    def get_job_card(self, job_card_id: int):
+        q = text("""
+            SELECT jc.*,
+                p.name AS property_name,
+                a1.name AS created_by_name,
+                a2.name AS assigned_to_name
+            FROM job_cards jc
+            LEFT JOIN properties p ON p.id = jc.property_id
+            LEFT JOIN admin_users a1 ON a1.id = jc.created_by_admin_id
+            LEFT JOIN admin_users a2 ON a2.id = jc.assigned_admin_id
+            WHERE jc.id = :id
+        """)
+        with self.engine.connect() as conn:
+            row = conn.execute(q, {"id": int(job_card_id)}).mappings().first()
+        return dict(row) if row else None
+
+    def fetch_job_cards(self, status=None, property_id=None, has_ticket=None):
+        base = """
+            SELECT
+                jc.id,
+                jc.ticket_id,
+                jc.status,
+                jc.title,
+                jc.created_at,
+                p.name AS property,
+                jc.unit_number,
+                a.name AS assigned_admin,
+                jc.estimated_cost,
+                jc.actual_cost
+            FROM job_cards jc
+            LEFT JOIN properties p ON p.id = jc.property_id
+            LEFT JOIN admin_users a ON a.id = jc.assigned_admin_id
+            WHERE 1=1
+        """
+        params = {}
+
+        if status and status != "All":
+            base += " AND jc.status = :status"
+            params["status"] = status
+
+        if property_id and str(property_id) != "All":
+            base += " AND jc.property_id = :property_id"
+            params["property_id"] = property_id
+
+        if has_ticket == "Yes":
+            base += " AND jc.ticket_id IS NOT NULL"
+        elif has_ticket == "No":
+            base += " AND jc.ticket_id IS NULL"
+
+        base += " ORDER BY jc.id DESC"
+
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(base), conn, params=params)
+        return df
+
+    def fetch_job_card_media(self, job_card_id: int):
+        q = text("""
+            SELECT media_type, media_blob, filename
+            FROM job_card_media
+            WHERE job_card_id = :job_card_id
+            ORDER BY id DESC
+        """)
+        with self.engine.connect() as conn:
+            df = pd.read_sql(q, conn, params={"job_card_id": int(job_card_id)})
+        return df
 
     def fetch_ticket_updates_as_activities_text(self, ticket_id: int) -> str:
         with self.engine.connect() as conn:
@@ -907,6 +1157,212 @@ class Conn:
 
         return int(job_card_id)
 
+    def create_job_card_standalone(
+        self,
+        description: str,
+        property_id: int | None,
+        unit_number: str | None,
+        created_by_admin_id: int | None,
+        assigned_admin_id: int | None,
+        title: str | None = None,
+        activities: str | None = None,
+        estimated_cost: float | None = None,
+    ):
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO job_cards (
+                        ticket_id, property_id, unit_number,
+                        created_by_admin_id, assigned_admin_id,
+                        title, description, activities,
+                        estimated_cost, status, created_at
+                    )
+                    VALUES (
+                        NULL, :property_id, :unit_number,
+                        :created_by, :assigned_to,
+                        :title, :description, :activities,
+                        :estimated_cost, 'Open', :created_at
+                    )
+                """),
+                {
+                    "property_id": int(property_id) if property_id else None,
+                    "unit_number": unit_number,
+                    "created_by": created_by_admin_id,
+                    "assigned_to": assigned_admin_id,
+                    "title": title,
+                    "description": description,
+                    "activities": activities,
+                    "estimated_cost": estimated_cost,
+                    "created_at": kenya_now(),
+                },
+            )
+            job_card_id = conn.execute(text("SELECT LAST_INSERT_ID()")).scalar()
+        return int(job_card_id)
+
+    def add_job_card_media(self, job_card_id: int, media_type: str, media_blob: bytes, filename: str | None):
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO job_card_media (job_card_id, media_type, media_blob, filename, uploaded_at)
+                    VALUES (:job_card_id, :media_type, :media_blob, :filename, :uploaded_at)
+                """),
+                {
+                    "job_card_id": int(job_card_id),
+                    "media_type": media_type,
+                    "media_blob": media_blob,
+                    "filename": filename,
+                    "uploaded_at": kenya_now(),
+                },
+            )
+
+    def update_job_card_status(self, job_card_id: int, new_status: str):
+        with self.engine.begin() as conn:
+            if new_status == "Completed":
+                conn.execute(
+                    text("""
+                        UPDATE job_cards
+                        SET status = :status,
+                            completed_at = :completed_at
+                        WHERE id = :id
+                    """),
+                    {"status": new_status, "completed_at": kenya_now(), "id": int(job_card_id)},
+                )
+            else:
+                conn.execute(
+                    text("""
+                        UPDATE job_cards
+                        SET status = :status
+                        WHERE id = :id
+                    """),
+                    {"status": new_status, "id": int(job_card_id)},
+                )
+
+    def update_job_card_costs(self, job_card_id: int, estimated_cost=None, actual_cost=None):
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("""
+                    UPDATE job_cards
+                    SET estimated_cost = :estimated_cost,
+                        actual_cost = :actual_cost
+                    WHERE id = :id
+                """),
+                {"estimated_cost": estimated_cost, "actual_cost": actual_cost, "id": int(job_card_id)},
+            )
+
+    def update_job_card(
+        self,
+        job_card_id: int,
+        title: str | None,
+        description: str | None,
+        activities: str | None,
+        status: str,
+        estimated_cost: float | None,
+        actual_cost: float | None,
+        assigned_admin_id: int | None,
+    ):
+        q = text("""
+            UPDATE job_cards
+            SET
+                title = :title,
+                description = :description,
+                activities = :activities,
+                status = :status,
+                estimated_cost = :estimated_cost,
+                actual_cost = :actual_cost,
+                assigned_admin_id = :assigned_admin_id,
+                updated_at = :updated_at
+            WHERE id = :id
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(
+                q,
+                {
+                    "id": int(job_card_id),
+                    "title": title,
+                    "description": description,
+                    "activities": activities,
+                    "status": status,
+                    "estimated_cost": estimated_cost,
+                    "actual_cost": actual_cost,
+                    "assigned_admin_id": int(assigned_admin_id) if assigned_admin_id else None,
+                    "updated_at": kenya_now(),
+                },
+            )
+
+    def signoff_job_card(self, job_card_id: int, signed_by_name: str, signed_by_role: str, signoff_notes: str | None = None):
+        q = text("""
+            INSERT INTO job_card_signoff
+            (job_card_id, signed_by_name, signed_by_role, signoff_notes, signed_at)
+            VALUES (:job_card_id, :signed_by_name, :signed_by_role, :signoff_notes, :signed_at)
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(
+                q,
+                {
+                    "job_card_id": int(job_card_id),
+                    "signed_by_name": signed_by_name,
+                    "signed_by_role": signed_by_role,
+                    "signoff_notes": signoff_notes,
+                    "signed_at": kenya_now(),
+                },
+            )
+
+    def get_job_card_signoff(self, job_card_id: int):
+        q = text("""
+            SELECT signed_by_name, signed_by_role, signoff_notes, signed_at
+            FROM job_card_signoff
+            WHERE job_card_id = :id
+            ORDER BY id DESC
+            LIMIT 1
+        """)
+        with self.engine.connect() as conn:
+            row = conn.execute(q, {"id": int(job_card_id)}).mappings().first()
+        return dict(row) if row else None
+
+    # -------------------- JOB CARD PUBLIC VERIFY -------------------- #
+    def get_job_card_public(self, job_card_id: int, token: str):
+        q = text("""
+            SELECT
+                jc.id,
+                jc.ticket_id,
+                jc.status,
+                jc.title,
+                jc.description,
+                jc.activities,
+                jc.estimated_cost,
+                jc.actual_cost,
+                jc.property_id,
+                p.name AS property_name,
+                jc.unit_number
+            FROM job_cards jc
+            LEFT JOIN properties p ON p.id = jc.property_id
+            WHERE jc.id = :id
+              AND jc.public_token = :t
+            LIMIT 1
+        """)
+        with self.engine.connect() as conn:
+            row = conn.execute(q, {"id": int(job_card_id), "t": token}).mappings().first()
+        return dict(row) if row else None
+
+    def verify_job_card_pin(self, job_card_id: int, token: str, pin4: str) -> bool:
+        q = text("""
+            SELECT u.whatsapp_number
+            FROM job_cards jc
+            JOIN tickets t ON t.id = jc.ticket_id
+            JOIN users u ON u.id = t.user_id
+            WHERE jc.id = :id
+              AND jc.public_token = :t
+            LIMIT 1
+        """)
+        with self.engine.connect() as conn:
+            row = conn.execute(q, {"id": int(job_card_id), "t": token}).fetchone()
+            if not row or not row[0]:
+                return False
+            wa = str(row[0]).strip()
+            if len(wa) < 4:
+                return False
+            return wa[-4:] == str(pin4).strip()
+
     def ensure_job_card_public_token(self, job_card_id: int) -> str:
         with self.engine.begin() as conn:
             existing = conn.execute(
@@ -930,20 +1386,25 @@ class Conn:
             return token
 
     # -------------------------------------------------------------------------
-    # WhatsApp Inbox (GLOBAL) — FIXED TABLE
+    # WhatsApp Inbox (GLOBAL) — FIXED (supports whatsapp_messages without created_at)
     # -------------------------------------------------------------------------
     def fetch_inbox_conversations(self, q_search: str | None = None, limit: int = 50) -> pd.DataFrame:
         """
-        Returns one row per wa_number with last message + timestamp.
-        Reads from whatsapp_messages if it exists; else whatsapp_message_log.
+        Returns one row per wa_number with the latest message.
+        - If whatsapp_messages exists:
+            - Uses created_at if present, else uses id
+        - Else uses whatsapp_message_log (created_at assumed)
         """
         table = self._whatsapp_table()
         params = {"lim": int(limit)}
 
         if table == "whatsapp_messages":
-            base = """
+            latest_key = self._wa_latest_key("whatsapp_messages")  # created_at or id
+
+            # Build per schema (your screenshot shows NO created_at, so latest_key becomes id)
+            base = f"""
                 WITH latest AS (
-                    SELECT wa_number, MAX(created_at) AS last_at
+                    SELECT wa_number, MAX({latest_key}) AS last_k
                     FROM whatsapp_messages
                     WHERE wa_number IS NOT NULL AND TRIM(wa_number) <> ''
                     GROUP BY wa_number
@@ -957,14 +1418,15 @@ class Conn:
                     w.status,
                     NULL AS ticket_id,
                     NULL AS job_card_id,
-                    w.created_at AS last_at,
+                    w.{latest_key} AS last_at,
                     0 AS unread_count
                 FROM whatsapp_messages w
                 JOIN latest l
                   ON l.wa_number = w.wa_number
-                 AND l.last_at = w.created_at
+                 AND l.last_k = w.{latest_key}
                 WHERE 1=1
             """
+
             if q_search and q_search.strip():
                 base += """
                     AND (
@@ -975,7 +1437,7 @@ class Conn:
                 """
                 params["qs"] = f"%{q_search.strip()}%"
 
-            base += " ORDER BY w.created_at DESC LIMIT :lim"
+            base += f" ORDER BY w.{latest_key} DESC LIMIT :lim"
 
             with self.engine.connect() as conn:
                 return pd.read_sql(text(base), conn, params=params)
@@ -1020,15 +1482,11 @@ class Conn:
         with self.engine.connect() as conn:
             return pd.read_sql(text(base), conn, params=params)
 
-    def fetch_conversation_messages(
-        self,
-        wa_number: str,
-        limit: int = 120,
-        before_id: int | None = None,
-    ) -> pd.DataFrame:
+    def fetch_conversation_messages(self, wa_number: str, limit: int = 120, before_id: int | None = None) -> pd.DataFrame:
         """
         Returns messages for one conversation (newest first).
-        Reads from whatsapp_messages if it exists; else whatsapp_message_log.
+        - If whatsapp_messages exists: uses its schema, pads missing columns for UI
+        - Else reads from whatsapp_message_log
         """
         if not wa_number:
             return pd.DataFrame()
@@ -1037,7 +1495,12 @@ class Conn:
         params = {"wa": str(wa_number).strip(), "lim": int(limit)}
 
         if table == "whatsapp_messages":
-            sql = """
+            has_created_at = self._column_exists("whatsapp_messages", "created_at")
+
+            # created_at might not exist; we still return a created_at column for UI (NULL)
+            created_at_select = "created_at" if has_created_at else "NULL AS created_at"
+
+            sql = f"""
                 SELECT
                     id,
                     wa_number,
@@ -1053,13 +1516,14 @@ class Conn:
                     error_text,
                     NULL AS ticket_id,
                     NULL AS job_card_id,
-                    created_at
+                    {created_at_select}
                 FROM whatsapp_messages
                 WHERE wa_number = :wa
             """
             if before_id is not None:
                 sql += " AND id < :before_id"
                 params["before_id"] = int(before_id)
+
             sql += " ORDER BY id DESC LIMIT :lim"
 
             with self.engine.connect() as conn:
@@ -1095,7 +1559,7 @@ class Conn:
         with self.engine.connect() as conn:
             return pd.read_sql(text(sql), conn, params=params)
 
-    # Optional helper (you used it in other pages)
+    # Optional helper used elsewhere
     def get_ticket_whatsapp_number(self, ticket_id: int) -> str | None:
         q = text("""
             SELECT u.whatsapp_number

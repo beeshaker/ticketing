@@ -137,7 +137,6 @@ elif st.session_state.admin_role == "Super Admin":
         ("Send Bulk Message", "envelope-paper-fill"),
         ("Admin Reassignment History", "clock-history"),
         ("KPI Dashboard", "speedometer2")
-        
     ]
     for label, icon in reversed(role_items):
         menu_options.insert(1, label)
@@ -565,14 +564,22 @@ elif selected == "Dashboard":
             st.markdown("### 🔄 Reassign Admin")
 
             admin_users = db.fetch_admin_users()
-            admin_options = {admin["id"]: admin["name"] for admin in admin_users}
+            admin_options = {
+                int(admin["id"]): f"{admin['name']} ({admin['admin_type']})"
+                for admin in admin_users
+            }
 
             current_assigned_name = selected_ticket["assigned_admin"]
             current_assigned_id = next(
-                (aid for aid, aname in admin_options.items() if aname == current_assigned_name),
+                (int(admin["id"]) for admin in admin_users if admin["name"] == current_assigned_name),
                 None,
             )
-            available_admins = {k: v for k, v in admin_options.items() if v != current_assigned_name}
+
+            available_admins = {
+                admin_id: label
+                for admin_id, label in admin_options.items()
+                if admin_id != current_assigned_id
+            }
 
             if not available_admins:
                 st.info("No other admins available.")
@@ -715,7 +722,10 @@ elif selected == "Dashboard":
 
                 admin_users = db.fetch_admin_users()
                 admin_map = {0: "— Unassigned —"}
-                admin_map.update({int(a["id"]): a["name"] for a in admin_users})
+                admin_map.update({
+                    int(a["id"]): f"{a['name']} ({a['admin_type']})"
+                    for a in admin_users
+                })
 
                 current_assigned = int(jc.get("assigned_admin_id") or 0)
                 if current_assigned not in admin_map:
@@ -1091,7 +1101,6 @@ elif selected == "KPI Dashboard":
 # -----------------------------------------------------------------------------
 elif selected == "Job Cards":
     job_cards_page(db)
-
 
 # -----------------------------------------------------------------------------
 # whatsapp

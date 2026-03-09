@@ -25,7 +25,8 @@ def admin_signup():
 
                 hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
-                # ✅ Only caretakers get property_id here (as per your logic)
+                # ✅ Only caretakers get property_id
+                # ✅ Technicians do NOT belong to a property
                 final_property_id = (
                     property_id
                     if (admin_type == "Caretaker" and property_id is not None)
@@ -34,8 +35,22 @@ def admin_signup():
 
                 conn.execute(
                     text("""
-                        INSERT INTO admin_users (name, username, password, whatsapp_number, property_id, admin_type)
-                        VALUES (:name, :username, :password, :whatsapp_number, :property_id, :admin_type)
+                        INSERT INTO admin_users (
+                            name,
+                            username,
+                            password,
+                            whatsapp_number,
+                            property_id,
+                            admin_type
+                        )
+                        VALUES (
+                            :name,
+                            :username,
+                            :password,
+                            :whatsapp_number,
+                            :property_id,
+                            :admin_type
+                        )
                     """),
                     {
                         "name": name,
@@ -64,20 +79,24 @@ def admin_signup():
         username = st.text_input("Username", placeholder="Enter a unique username")
         password = st.text_input("Password", type="password", placeholder="Enter a strong password")
 
-        # ✅ CHANGED LABEL: Property Manager -> Property Supervisor
         if st.session_state.get("admin_role") == "Super Admin":
             admin_type = st.selectbox(
                 "Admin Type",
-                ["Super Admin", "Admin", "Property Supervisor", "Caretaker"],
+                ["Super Admin", "Admin", "Property Supervisor", "Caretaker", "Technician"],
             )
         else:
             admin_type = st.selectbox(
                 "Admin Type",
-                ["Admin", "Property Supervisor", "Caretaker"],
+                ["Admin", "Property Supervisor", "Caretaker", "Technician"],
             )
 
-        selected_label = st.selectbox("Assign Property (Caretakers only)", property_label_list)
-        property_id = property_options.get(selected_label) if selected_label != "None" else None
+        # ✅ Only caretakers can be linked to a property
+        if admin_type == "Caretaker":
+            selected_label = st.selectbox("Assign Property (Caretakers only)", property_label_list)
+            property_id = property_options.get(selected_label) if selected_label != "None" else None
+        else:
+            st.info("This user type is not assigned to a property.")
+            property_id = None
 
         submit_button = st.form_submit_button("Create Admin User")
 
@@ -113,9 +132,9 @@ def admin_signup():
     if admins:
         df = pd.DataFrame(admins, columns=["ID", "Name", "Username", "Type", "Property"])
         st.dataframe(
-    df.drop(columns=["Property"]),
-    use_container_width=True,
-    hide_index=True
-)
+            df,
+            use_container_width=True,
+            hide_index=True
+        )
     else:
         st.warning("No admin users registered yet.")

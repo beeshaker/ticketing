@@ -1,5 +1,9 @@
-# conn.py (FULL UPDATED — cleaned + WhatsApp inbox uses the CORRECT table)
-# ✅ Removes duplicates
+# conn.py (FULL FINAL UPDATED)
+# ✅ Supports Technician admin type
+# ✅ Property Supervisors can see all tickets for their property
+# ✅ Technicians are not tied to a property
+# ✅ If a Technician is assigned a ticket, the Property Supervisor is also notified on WhatsApp
+# ✅ fetch_admin_users now returns admin_type for role-labelled dropdowns
 # ✅ WhatsApp Inbox reads from whatsapp_messages if it exists, else falls back to whatsapp_message_log
 # ✅ Handles whatsapp_messages WITHOUT created_at (uses MAX(id) instead)
 # ✅ Keeps tickets + job cards + KPIs + properties/users/admins intact
@@ -118,18 +122,33 @@ class Conn:
         WHERE t.status != 'Resolved'
         """
 
-        params = ()
+        params = {}
         if property and property != "All":
-            query += " AND p.name = %s"
-            params = (property,)
+            query += " AND p.name = :property_name"
+            params["property_name"] = property
 
-        df = pd.read_sql(query, self.engine, params=params)
+        query += " ORDER BY t.id DESC"
+
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn, params=params)
+
         df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
         return df
 
     def fetch_open_tickets(self, admin_id=None):
-        """Fetch tickets for an admin, including read status."""
-        query = """
+        """
+        Fetch tickets for an admin.
+
+        Rules:
+        - Super Admin / Admin: see all non-resolved tickets
+        - Property Supervisor: see all non-resolved tickets for their property
+        - Caretaker / Technician: see tickets assigned to them + reassignment history
+        """
+        admin_info = self.get_admin_role_and_property(admin_id) if admin_id else None
+        admin_type = admin_info["admin_type"] if admin_info else None
+        property_id = admin_info["property_id"] if admin_info else None
+
+        base_query = """
         SELECT
             t.id,
             t.status,
@@ -147,13 +166,38 @@ class Conn:
         JOIN users u ON t.user_id = u.id
         LEFT JOIN admin_users a ON t.assigned_admin = a.id
         LEFT JOIN properties p ON t.property_id = p.id
-        WHERE (
-            t.assigned_admin = %s
-            OR t.id IN (SELECT ticket_id FROM admin_change_log WHERE old_admin = %s)
-        )
-        AND t.status != 'Resolved'
+        WHERE t.status != 'Resolved'
         """
-        df = pd.read_sql(query, self.engine, params=(admin_id, admin_id))
+
+        params = {}
+
+        if admin_type in ("Super Admin", "Admin"):
+            query = base_query + " ORDER BY t.id DESC"
+
+        elif admin_type == "Property Supervisor":
+            query = base_query + """
+                AND t.property_id = :property_id
+                ORDER BY t.id DESC
+            """
+            params["property_id"] = int(property_id) if property_id is not None else -1
+
+        else:
+            query = base_query + """
+                AND (
+                    t.assigned_admin = :admin_id
+                    OR t.id IN (
+                        SELECT ticket_id
+                        FROM admin_change_log
+                        WHERE old_admin = :admin_id
+                    )
+                )
+                ORDER BY t.id DESC
+            """
+            params["admin_id"] = int(admin_id) if admin_id is not None else -1
+
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn, params=params)
+
         df["Due_Date"] = df["Due_Date"].where(pd.notnull(df["Due_Date"]), None)
         return df
 
@@ -190,13 +234,19 @@ class Conn:
     # Admins
     # -------------------------------------------------------------------------
     def fetch_admin_users(self):
-        q = "SELECT id, name, whatsapp_number FROM admin_users"
-        df = pd.read_sql(q, self.engine)
+        q = """
+            SELECT id, name, whatsapp_number, admin_type, property_id
+            FROM admin_users
+            ORDER BY name
+        """
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(q), conn)
         return df.to_dict("records")
 
     def fetch_all_admin_users(self):
         q = "SELECT id, name, username, whatsapp_number, admin_type, property_id FROM admin_users"
-        df = pd.read_sql(q, self.engine)
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(q), conn)
         return df.to_dict("records")
 
     def get_all_admin_users(self):
@@ -212,8 +262,55 @@ class Conn:
             ).mappings().fetchone()
         return result if result else None
 
+    def get_admin_user_by_id(self, admin_id):
+        with self.engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT id, name, username, whatsapp_number, admin_type, property_id
+                    FROM admin_users
+                    WHERE id = :id
+                    LIMIT 1
+                """),
+                {"id": int(admin_id)},
+            ).mappings().fetchone()
+        return dict(row) if row else None
+
+    def fetch_technicians(self):
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, name, whatsapp_number, admin_type
+                    FROM admin_users
+                    WHERE admin_type = 'Technician'
+                    ORDER BY name
+                """)
+            ).mappings().all()
+        return [dict(r) for r in rows]
+
+    def fetch_assignable_admin_users(self):
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, name, whatsapp_number, admin_type, property_id
+                    FROM admin_users
+                    WHERE admin_type IN (
+                        'Caretaker',
+                        'Technician',
+                        'Property Supervisor',
+                        'Admin',
+                        'Super Admin'
+                    )
+                    ORDER BY name
+                """)
+            ).mappings().all()
+        return [dict(r) for r in rows]
+
     def update_admin_user(self, admin_id, name, username, whatsapp_number, admin_type, property_id):
         if str(property_id).lower() == "nan" or property_id in ("", None):
+            property_id = None
+
+        # Only Caretaker and Property Supervisor may hold a property_id
+        if admin_type not in ("Caretaker", "Property Supervisor"):
             property_id = None
 
         q = text("""
@@ -460,8 +557,14 @@ class Conn:
         """
         Reassigns ticket, logs change, and sends WhatsApp notifications.
         Uses Kenya time for changed_at.
+
+        Extra rule:
+        - If new assignee is a Technician, also notify the Property Supervisor
+          of the ticket's property.
         """
         try:
+            ticket_property_id = None
+
             with self.engine.begin() as conn:
                 reassign_count = conn.execute(
                     text("SELECT MAX(reassign_count) FROM admin_change_log WHERE ticket_id = :ticket_id"),
@@ -471,6 +574,18 @@ class Conn:
 
                 if reassign_count >= 3 and not is_super_admin:
                     return False, "⚠️ Reassignment limit reached. Only a Super Admin can override."
+
+                ticket_row = conn.execute(
+                    text("""
+                        SELECT property_id
+                        FROM tickets
+                        WHERE id = :ticket_id
+                        LIMIT 1
+                    """),
+                    {"ticket_id": int(ticket_id)},
+                ).mappings().fetchone()
+
+                ticket_property_id = ticket_row["property_id"] if ticket_row else None
 
                 conn.execute(
                     text("UPDATE tickets SET assigned_admin = :new_admin_id WHERE id = :ticket_id"),
@@ -499,14 +614,37 @@ class Conn:
                     },
                 )
 
-            admin_users = self.fetch_admin_users()
-            new_admin_info = next((a for a in admin_users if str(a["id"]) == str(new_admin_id)), None)
+            new_admin_info = self.get_admin_user_by_id(new_admin_id)
+
             if new_admin_info and new_admin_info.get("whatsapp_number"):
                 self.send_template_notification(
                     to=new_admin_info["whatsapp_number"],
                     template_name="ticket_reassignment",
                     template_parameters=[f"#{ticket_id}", changed_by_admin, reason],
                 )
+
+            if (
+                new_admin_info
+                and new_admin_info.get("admin_type") in ("Technician", "Caretaker")
+                and ticket_property_id is not None
+            ):
+                supervisors = self.get_property_supervisors(ticket_property_id)
+
+                if not supervisors:
+                    single_supervisor = self.get_property_supervisor_by_property(ticket_property_id)
+                    if single_supervisor:
+                        supervisors = [dict(single_supervisor)]
+
+                for supervisor in supervisors:
+                    wa = str(supervisor.get("whatsapp_number") or "").strip()
+                    if wa:
+                        msg = (
+                            f"📌 Ticket #{ticket_id} for your property has been assigned to "
+                            f"{new_admin_info['name']} ({new_admin_info['admin_type']}).\n\n"
+                            f"Changed by: {changed_by_admin}\n"
+                            f"Reason: {reason}"
+                        )
+                        self.send_whatsapp_notification(wa, msg)
 
             return True, "✅ Ticket reassigned successfully!"
         except Exception as e:
@@ -527,11 +665,12 @@ class Conn:
             l.override_by_super_admin
         FROM admin_change_log l
         JOIN tickets t ON l.ticket_id = t.id
-        JOIN admin_users u1 ON l.old_admin = u1.id
-        JOIN admin_users u2 ON l.new_admin = u2.id
+        LEFT JOIN admin_users u1 ON l.old_admin = u1.id
+        LEFT JOIN admin_users u2 ON l.new_admin = u2.id
         ORDER BY l.changed_at DESC
         """
-        return pd.read_sql(query, self.engine)
+        with self.engine.connect() as conn:
+            return pd.read_sql(text(query), conn)
 
     # -------------------------------------------------------------------------
     # Media + due date
@@ -656,7 +795,10 @@ class Conn:
             if not valid:
                 raise ValueError("Supervisor must be a valid Property Supervisor.")
 
-            conn.execute(update_query, {"name": name, "supervisor_id": int(supervisor_id), "property_id": int(property_id)})
+            conn.execute(
+                update_query,
+                {"name": name, "supervisor_id": int(supervisor_id), "property_id": int(property_id)},
+            )
 
     def delete_property(self, property_id):
         with self.engine.begin() as conn:
@@ -698,6 +840,20 @@ class Conn:
             ).mappings().fetchone()
 
         return row if row else None
+
+    def get_property_supervisors(self, property_id):
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, name, whatsapp_number
+                    FROM admin_users
+                    WHERE admin_type = 'Property Supervisor'
+                      AND property_id = :property_id
+                    ORDER BY name
+                """),
+                {"property_id": int(property_id)},
+            ).mappings().all()
+        return [dict(r) for r in rows]
 
     def count_admin_users_by_property(self, property_id):
         with self.engine.connect() as conn:
@@ -788,11 +944,20 @@ class Conn:
     # Ticket creation (admin portal)
     # -------------------------------------------------------------------------
     def insert_ticket_and_get_id(self, user_id, description, category, property_id, assigned_admin):
+        """
+        Creates a ticket and returns the ticket ID.
+
+        Notifications:
+        - Assigned admin receives WhatsApp template notification
+        - If assigned admin is Caretaker or Technician, Property Supervisor is also notified
+        """
+
         insert_q = text("""
             INSERT INTO tickets
             (user_id, issue_description, status, created_at, category, property_id, assigned_admin)
             VALUES (:user_id, :description, 'Open', :created_at, :category, :property_id, :assigned_admin)
         """)
+
         select_q = text("SELECT LAST_INSERT_ID() AS id")
 
         with self.engine.begin() as conn:
@@ -807,8 +972,62 @@ class Conn:
                     "created_at": kenya_now(),
                 },
             )
+
             result = conn.execute(select_q).fetchone()
-            return int(result[0]) if result else None
+            ticket_id = int(result[0]) if result else None
+
+        # ---------------------------------------------------------------------
+        # Notifications
+        # ---------------------------------------------------------------------
+        if ticket_id and assigned_admin is not None:
+
+            try:
+                assigned_admin_info = self.get_admin_user_by_id(assigned_admin)
+
+                # Notify assigned admin
+                if assigned_admin_info and assigned_admin_info.get("whatsapp_number"):
+
+                    self.send_template_notification(
+                        to=assigned_admin_info["whatsapp_number"],
+                        template_name="ticket_reassignment",
+                        template_parameters=[
+                            f"#{ticket_id}",
+                            "System",
+                            "Initial assignment"
+                        ],
+                    )
+
+                # Notify Property Supervisor if Caretaker or Technician
+                if (
+                    assigned_admin_info
+                    and assigned_admin_info.get("admin_type") in ("Caretaker", "Technician")
+                    and property_id is not None
+                ):
+
+                    supervisors = self.get_property_supervisors(property_id)
+
+                    # Fallback to property supervisor mapping
+                    if not supervisors:
+                        single_supervisor = self.get_property_supervisor_by_property(property_id)
+                        if single_supervisor:
+                            supervisors = [dict(single_supervisor)]
+
+                    for supervisor in supervisors:
+
+                        wa = str(supervisor.get("whatsapp_number") or "").strip()
+
+                        if wa:
+                            msg = (
+                                f"📌 Ticket #{ticket_id} for your property has been assigned to "
+                                f"{assigned_admin_info['name']} ({assigned_admin_info['admin_type']})."
+                            )
+
+                            self.send_whatsapp_notification(wa, msg)
+
+            except Exception as e:
+                print(f"⚠️ Ticket creation notification warning: {e}")
+
+        return ticket_id
 
     def get_user_id_by_unit_and_property(self, unit_number, property_id):
         with self.engine.connect() as conn:
@@ -1386,7 +1605,7 @@ class Conn:
             return token
 
     # -------------------------------------------------------------------------
-    # WhatsApp Inbox (GLOBAL) — FIXED (supports whatsapp_messages without created_at)
+    # WhatsApp Inbox (GLOBAL)
     # -------------------------------------------------------------------------
     def fetch_inbox_conversations(self, q_search: str | None = None, limit: int = 50) -> pd.DataFrame:
         """
@@ -1399,9 +1618,8 @@ class Conn:
         params = {"lim": int(limit)}
 
         if table == "whatsapp_messages":
-            latest_key = self._wa_latest_key("whatsapp_messages")  # created_at or id
+            latest_key = self._wa_latest_key("whatsapp_messages")
 
-            # Build per schema (your screenshot shows NO created_at, so latest_key becomes id)
             base = f"""
                 WITH latest AS (
                     SELECT wa_number, MAX({latest_key}) AS last_k
@@ -1442,7 +1660,6 @@ class Conn:
             with self.engine.connect() as conn:
                 return pd.read_sql(text(base), conn, params=params)
 
-        # Legacy whatsapp_message_log
         base = """
             WITH latest AS (
                 SELECT wa_number, MAX(created_at) AS last_at
@@ -1496,8 +1713,6 @@ class Conn:
 
         if table == "whatsapp_messages":
             has_created_at = self._column_exists("whatsapp_messages", "created_at")
-
-            # created_at might not exist; we still return a created_at column for UI (NULL)
             created_at_select = "created_at" if has_created_at else "NULL AS created_at"
 
             sql = f"""
@@ -1529,7 +1744,6 @@ class Conn:
             with self.engine.connect() as conn:
                 return pd.read_sql(text(sql), conn, params=params)
 
-        # Legacy whatsapp_message_log
         sql = """
             SELECT
                 id,
@@ -1559,7 +1773,9 @@ class Conn:
         with self.engine.connect() as conn:
             return pd.read_sql(text(sql), conn, params=params)
 
+    # -------------------------------------------------------------------------
     # Optional helper used elsewhere
+    # -------------------------------------------------------------------------
     def get_ticket_whatsapp_number(self, ticket_id: int) -> str | None:
         q = text("""
             SELECT u.whatsapp_number
